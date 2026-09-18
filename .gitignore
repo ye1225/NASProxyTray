@@ -1,0 +1,11 @@
+﻿# 构建产物
+*.exe
+
+# IDE / 临时文件
+.vscode/
+.idea/
+*.tmp
+*.log
+
+# 本地配置
+config.json
