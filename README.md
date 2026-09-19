@@ -3,7 +3,9 @@
 内置 WebView2 界面用于配置规则、切换皮肤。
 
 
-<img width="442" height="524" alt="image" src="https://github.com/user-attachments/assets/db8a55c8-a43b-4b91-b12f-6c5df4400749" />
+<img width="442" height="524" alt="image" src="https://github.com/user-attachments/assets/3f37f62f-542f-4326-9784-a318891cea6e" />
+
+
 
 ---
 
