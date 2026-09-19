@@ -1,0 +1,962 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>NAS Proxy</title>
+<style>
+:root {
+    --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --text-secondary: #86868b;
+    --border: #e5e5ea; --accent: #007aff; --accent-hover: #0066d6;
+    --green: #34c759; --red: #ff3b30; --accent-soft: rgba(0,122,255,0.08);
+    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04);
+    --shadow-hover: 0 2px 8px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06);
+}
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --text-secondary: #98989d;
+        --border: #38383a; --accent: #0a84ff; --accent-hover: #409cff;
+        --green: #30d158; --red: #ff453a; --accent-soft: rgba(10,132,255,0.15);
+        --shadow: 0 1px 3px rgba(0,0,0,0.3), 0 4px 12px rgba(0,0,0,0.2);
+        --shadow-hover: 0 2px 8px rgba(0,0,0,0.4), 0 8px 24px rgba(0,0,0,0.3);
+    }
+}
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+html, body { background: var(--bg); }
+body {
+    font-family: -apple-system, 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
+    color: var(--text); width: 420px;
+    padding: 16px 18px; display: flex; flex-direction: column; gap: 11px;
+    transition: background 0.3s ease, color 0.3s ease;
+    user-select: none; overflow: hidden;
+}
+.title-bar { display: flex; align-items: center; justify-content: space-between; padding: 0 2px; }
+.title { font-size: 14px; font-weight: 600; letter-spacing: 0.3px; }
+.title-sub { font-size: 11px; color: var(--text-secondary); margin-top: 1px; }
+
+.switch-card {
+    background: var(--card); border-radius: 14px; padding: 16px 20px;
+    box-shadow: var(--shadow); display: flex; flex-direction: row;
+    align-items: center; gap: 16px;
+}
+.switch-btn {
+    width: 68px; height: 68px; border-radius: 50%; border: none; cursor: pointer;
+    background: linear-gradient(135deg, #b0b0b0, #8a8a8a);
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative; overflow: hidden; flex-shrink: 0;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.2);
+}
+.switch-btn::before {
+    content: ''; position: absolute; inset: 0; border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.4), transparent 60%);
+    opacity: 0.6;
+}
+.switch-btn:hover { transform: scale(1.05); }
+.switch-btn:active { transform: scale(0.97); }
+.switch-btn.on {
+    background: linear-gradient(135deg, #34c759, #28a745);
+    box-shadow: 0 4px 18px rgba(52, 199, 89, 0.4), inset 0 1px 0 rgba(255,255,255,0.3);
+}
+.switch-btn svg {
+    width: 30px; height: 30px; stroke: white; stroke-width: 2.5;
+    fill: none; stroke-linecap: round; stroke-linejoin: round;
+    position: relative; z-index: 1; transition: all 0.3s ease;
+}
+.switch-status { text-align: left; flex: 1; min-width: 0; }
+.switch-status-title { font-size: 15px; font-weight: 600; margin-bottom: 3px; transition: color 0.3s ease; }
+.switch-status-title.on { color: var(--green); }
+.switch-status-desc {
+    font-size: 11.5px; color: var(--text-secondary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.status-badge {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 11px; border-radius: 20px;
+    font-size: 11px; font-weight: 500; letter-spacing: 0.2px;
+    background: rgba(142,142,147,0.13); color: var(--text-secondary);
+    flex-shrink: 0; transition: all 0.3s ease;
+}
+.status-badge.on { background: rgba(52,199,89,0.15); color: var(--green); }
+.badge-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 0 3px rgba(142,142,147,0.15);
+    transition: all 0.3s ease;
+}
+.status-badge.on .badge-dot {
+    box-shadow: 0 0 0 3px rgba(52,199,89,0.2);
+    animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: 0.5; transform: scale(0.85); }
+}
+
+.config-card {
+    background: var(--card); border-radius: 14px; padding: 16px 18px;
+    box-shadow: var(--shadow); display: flex; flex-direction: column;
+    gap: 12px; transition: background 0.3s ease, padding 0.3s ease;
+}
+.field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.field-label {
+    font-size: 11.5px; font-weight: 500; color: var(--text-secondary);
+    letter-spacing: 0.2px;
+}
+
+.mode-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+/* ---- 合并的代理地址输入框 ---- */
+.proxy-input {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: center;
+    background: var(--bg);
+    border: 1.5px solid transparent;
+    border-radius: 9px;
+    padding: 0 12px;
+    transition: all 0.2s ease;
+    height: 38px;
+}
+.proxy-input:focus-within {
+    border-color: var(--accent);
+    background: var(--card);
+    box-shadow: 0 0 0 4px var(--accent-soft);
+}
+.proxy-input input {
+    background: transparent;
+    border: none;
+    outline: none;
+    padding: 0;
+    font-family: inherit;
+    font-size: 13px;
+    color: var(--text);
+    line-height: 38px;
+    height: 38px;
+    width: 100%;
+}
+.proxy-left {
+    grid-column: 1;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+.proxy-ip {
+    flex: 1;
+    min-width: 0;
+    padding-right: 16px !important;
+}
+.proxy-right {
+    grid-column: 2;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    padding-left: 26px; /* 端口右移，和"智能分流"文字左边缘对齐 */
+}
+.proxy-port {
+    width: 72px;
+    flex-shrink: 0;
+}
+.proxy-sep {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    color: var(--text-secondary);
+    font-size: 13px;
+    opacity: 0.55;
+    user-select: none;
+    pointer-events: none;
+    line-height: 1;
+    z-index: 1;
+}
+
+.conn-inline {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex; align-items: center; gap: 4px;
+    font-size: 10.5px; font-weight: 500;
+    letter-spacing: 0.1px;
+    color: var(--text-secondary);
+    pointer-events: none;
+    transition: color 0.3s ease;
+    white-space: nowrap;
+    z-index: 1;
+}
+.conn-inline .conn-dot {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+    transition: all 0.3s ease;
+    box-shadow: 0 0 0 2px rgba(142,142,147,0.12);
+}
+.conn-inline.testing .conn-dot { animation: pulse 1s ease-in-out infinite; }
+.conn-inline.ok { color: var(--green); }
+.conn-inline.ok .conn-dot { box-shadow: 0 0 0 2px rgba(52,199,89,0.18); }
+.conn-inline.fail { color: var(--red); }
+.conn-inline.fail .conn-dot { box-shadow: 0 0 0 2px rgba(255,59,48,0.18); }
+
+input[type="text"], textarea {
+    font-family: inherit; font-size: 13px; color: var(--text);
+    background: var(--bg); border: 1.5px solid transparent; border-radius: 9px;
+    padding: 9px 11px; outline: none; transition: all 0.2s ease;
+    width: 100%; resize: none;
+}
+input[type="text"]:focus, textarea:focus {
+    border-color: var(--accent); background: var(--card);
+    box-shadow: 0 0 0 4px var(--accent-soft);
+}
+.proxy-input input[type="text"] {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0;
+}
+.proxy-input input[type="text"]:focus {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+}
+
+textarea {
+    font-size: 11.5px; line-height: 1.55;
+    font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.mode-card {
+    padding: 10px 12px;
+    background: var(--bg); border: 2px solid transparent;
+    border-radius: 10px; font-family: inherit; text-align: left;
+    cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    min-width: 0;
+}
+.mode-card:hover { border-color: rgba(142,142,147,0.25); }
+.mode-card.active { background: var(--accent-soft); border-color: var(--accent); }
+.mode-card-title {
+    font-size: 12.5px; font-weight: 600; color: var(--text);
+    margin-bottom: 3px; display: flex; align-items: center; gap: 5px;
+    transition: color 0.2s ease;
+}
+.mode-card.active .mode-card-title { color: var(--accent); }
+.mode-card-desc { font-size: 10.5px; color: var(--text-secondary); line-height: 1.4; }
+.mode-card .check {
+    width: 13px; height: 13px; stroke: var(--accent); stroke-width: 3;
+    fill: none; stroke-linecap: round; stroke-linejoin: round;
+    opacity: 0; transform: scale(0.6);
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    margin-left: auto;
+}
+.mode-card.active .check { opacity: 1; transform: scale(1); }
+
+.collapse-toggle {
+    display: flex; align-items: center; gap: 7px;
+    background: transparent; border: none; padding: 6px 2px;
+    color: var(--text-secondary); font-size: 11.5px; font-weight: 500;
+    cursor: pointer; text-align: left; width: 100%;
+    font-family: inherit; transition: color 0.2s ease;
+    letter-spacing: 0.2px;
+}
+.collapse-toggle:hover { color: var(--text); }
+.collapse-toggle .chev {
+    width: 11px; height: 11px; stroke: currentColor; stroke-width: 2.8;
+    fill: none; stroke-linecap: round; stroke-linejoin: round;
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    flex-shrink: 0;
+}
+.collapse-toggle.expanded .chev { transform: rotate(90deg); }
+.collapse-toggle .hint {
+    margin-left: auto; font-size: 10.5px; opacity: 0.65;
+    font-weight: 400; transition: opacity 0.2s ease;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    display: flex; align-items: center; gap: 5px;
+}
+.collapse-toggle.expanded .hint { opacity: 0; }
+.collapse-toggle .custom-dot {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--accent); flex-shrink: 0;
+    display: none;
+}
+.collapse-toggle.has-custom .hint { opacity: 1; color: var(--accent); }
+.collapse-toggle.has-custom.expanded .hint { opacity: 0; }
+.collapse-toggle.has-custom .custom-dot { display: block; }
+
+.collapse-panel {
+    max-height: 0; overflow: hidden;
+    transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.collapse-panel.expanded { max-height: 560px; }
+.collapse-panel-inner {
+    padding-top: 4px; display: flex; flex-direction: column; gap: 12px;
+}
+
+.pac-block { display: none; flex-direction: column; gap: 8px; }
+.pac-block.visible { display: flex; }
+.pac-divider {
+    display: none; height: 1px; background: var(--border);
+    margin: 2px 0;
+}
+.pac-divider.visible { display: block; }
+
+.sub-label {
+    font-size: 11.5px; font-weight: 500; color: var(--text-secondary);
+    letter-spacing: 0.2px; margin-bottom: 5px; display: block;
+}
+.sub-label .count { color: var(--accent); font-weight: 600; margin-left: 3px; }
+
+.pac-tabs {
+    display: flex; gap: 4px;
+    background: var(--bg); border-radius: 9px; padding: 3px;
+}
+.pac-tab {
+    flex: 1; padding: 6px 8px;
+    background: transparent; border: none; border-radius: 7px;
+    font-family: inherit; font-size: 11.5px; font-weight: 500;
+    color: var(--text-secondary); cursor: pointer;
+    transition: all 0.2s ease;
+}
+.pac-tab:hover { color: var(--text); }
+.pac-tab.active {
+    background: var(--card); color: var(--accent);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+.pac-panel { display: none; flex-direction: column; gap: 6px; }
+.pac-panel.active { display: flex; }
+
+.file-picker { display: flex; gap: 6px; }
+.file-picker input[type="text"] { flex: 1; }
+.browse-btn {
+    padding: 0 14px; flex-shrink: 0;
+    background: var(--bg); border: 1.5px solid var(--border);
+    border-radius: 9px; font-family: inherit; font-size: 12px;
+    font-weight: 500; color: var(--text); cursor: pointer;
+    transition: all 0.2s ease;
+}
+.browse-btn:hover { background: var(--card); border-color: var(--text-secondary); }
+
+.pac-hint {
+    font-size: 10.5px; color: var(--text-secondary);
+    line-height: 1.5; padding: 0 2px;
+}
+.pac-hint a { color: var(--accent); text-decoration: none; }
+.pac-hint a:hover { text-decoration: underline; }
+
+.auto-start-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-top: 10px; border-top: 1px solid var(--border);
+}
+.auto-start-label {
+    font-size: 12px; font-weight: 500; color: var(--text-secondary);
+    letter-spacing: 0.2px;
+}
+.toggle {
+    position: relative; width: 40px; height: 23px;
+    border-radius: 12px; background: rgba(142,142,147,0.3);
+    cursor: pointer; transition: background 0.25s ease;
+    flex-shrink: 0; border: none; padding: 0;
+}
+.toggle::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 19px; height: 19px; border-radius: 50%;
+    background: white;
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.toggle.on { background: var(--green); }
+.toggle.on::after { transform: translateX(17px); }
+
+.save-btn {
+    width: 100%; padding: 11px;
+    background: var(--accent); color: white;
+    border: none; border-radius: 10px;
+    font-family: inherit; font-size: 13px; font-weight: 500;
+    cursor: pointer; transition: all 0.25s ease;
+    margin-top: 4px; letter-spacing: 0.3px;
+    position: relative;
+}
+.save-btn:hover {
+    background: var(--accent-hover);
+    box-shadow: 0 4px 14px rgba(0, 122, 255, 0.3);
+}
+.save-btn:active { transform: scale(0.99); }
+.save-btn.dirty::after {
+    content: '';
+    display: inline-block;
+    width: 5px; height: 5px; border-radius: 50%;
+    background: white; margin-left: 6px; margin-bottom: 2px;
+    animation: dirtyBlink 1.5s ease-in-out infinite;
+}
+@keyframes dirtyBlink {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.3; }
+}
+.save-btn.saving { background: var(--accent-hover); cursor: wait; }
+.save-btn.saved {
+    background: var(--green);
+    box-shadow: 0 4px 14px rgba(52, 199, 89, 0.3);
+}
+
+.footer {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 10.5px; color: var(--text-secondary);
+    padding: 0 2px;
+}
+.footer a, .footer button {
+    color: var(--text-secondary); text-decoration: none;
+    transition: color 0.2s ease; background: none; border: none;
+    font-family: inherit; font-size: inherit; cursor: pointer; padding: 0;
+}
+.footer a:hover, .footer button:hover { color: var(--accent); }
+.footer .center { flex: 1; text-align: center; }
+
+.toast {
+    position: fixed; bottom: 20px; left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: var(--card); color: var(--text);
+    padding: 11px 18px; border-radius: 11px;
+    font-size: 12.5px; font-weight: 500;
+    box-shadow: var(--shadow-hover); opacity: 0;
+    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none; border: 1px solid var(--border); z-index: 100;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.success { border-color: var(--green); color: var(--green); }
+.toast.error { border-color: var(--red); color: var(--red); }
+
+.modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.35);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.2s ease;
+    z-index: 200;
+}
+.modal-overlay.show { opacity: 1; pointer-events: auto; }
+.modal {
+    background: var(--card);
+    border-radius: 14px; padding: 20px; width: 300px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+    transform: scale(0.95);
+    transition: transform 0.2s ease;
+}
+.modal-overlay.show .modal { transform: scale(1); }
+.modal-title { font-size: 14px; font-weight: 600; margin-bottom: 8px; letter-spacing: 0.2px; }
+.modal-text { font-size: 12px; color: var(--text-secondary); line-height: 1.55; margin-bottom: 18px; }
+.modal-actions { display: flex; gap: 8px; }
+.modal-btn {
+    flex: 1; padding: 9px; border-radius: 9px;
+    font-family: inherit; font-size: 12.5px; font-weight: 500;
+    cursor: pointer; transition: all 0.2s ease; border: none;
+}
+.modal-btn.cancel { background: var(--bg); color: var(--text); border: 1.5px solid var(--border); }
+.modal-btn.cancel:hover { border-color: var(--text-secondary); }
+.modal-btn.confirm { background: var(--red); color: white; }
+.modal-btn.confirm:hover { filter: brightness(0.95); }
+</style>
+</head>
+<body>
+    <div class="title-bar">
+        <div>
+            <div class="title">NAS Proxy</div>
+            <div class="title-sub">点击按钮切换代理，或双击托盘图标</div>
+        </div>
+    </div>
+
+    <div class="switch-card">
+        <button class="switch-btn" id="switchBtn" title="点击切换代理">
+            <svg viewBox="0 0 24 24">
+                <path id="switchIcon" d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
+                <line id="switchLine" x1="12" y1="2" x2="12" y2="12"></line>
+            </svg>
+        </button>
+        <div class="switch-status">
+            <div class="switch-status-title" id="statusTitle">代理已关闭</div>
+            <div class="switch-status-desc" id="statusDesc">点击左侧按钮开启</div>
+        </div>
+        <div class="status-badge" id="statusBadge">
+            <span class="badge-dot"></span>
+            <span id="badgeText">已停止</span>
+        </div>
+    </div>
+
+    <div class="config-card">
+        <div class="field">
+            <label class="field-label">代理模式</label>
+            <div class="mode-grid">
+                <button class="mode-card active" data-mode="global" type="button">
+                    <div class="mode-card-title">
+                        <span>全局代理</span>
+                        <svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    </div>
+                    <div class="mode-card-desc">所有流量走 NAS</div>
+                </button>
+                <button class="mode-card" data-mode="smart" type="button">
+                    <div class="mode-card-title">
+                        <span>智能分流</span>
+                        <svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    </div>
+                    <div class="mode-card-desc">按 PAC 规则分流</div>
+                </button>
+            </div>
+        </div>
+
+        <div class="field">
+            <label class="field-label">代理服务器</label>
+            <div class="proxy-input">
+                <div class="proxy-left">
+                    <input type="text" id="server" class="proxy-ip" value="192.168.31.126" spellcheck="false">
+                </div>
+                <div class="proxy-right">
+                    <input type="text" id="port" class="proxy-port" value="41634" inputmode="numeric">
+                </div>
+                <span class="proxy-sep">:</span>
+                <span class="conn-inline testing" id="connInline">
+                    <span class="conn-dot"></span>
+                    <span id="connText">检测中</span>
+                </span>
+            </div>
+        </div>
+
+        <button class="collapse-toggle" id="advancedToggle" type="button">
+            <svg class="chev" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            <span>高级设置</span>
+            <span class="hint">
+                <span class="custom-dot"></span>
+                <span id="advancedHint">例外地址 · 开机自启动</span>
+            </span>
+        </button>
+        <div class="collapse-panel" id="advancedPanel">
+            <div class="collapse-panel-inner">
+                <div class="pac-block" id="pacBlock">
+                    <div>
+                        <label class="sub-label">PAC 规则来源</label>
+                        <div class="pac-tabs">
+                            <button class="pac-tab active" data-pac="builtin" type="button">内置规则</button>
+                            <button class="pac-tab" data-pac="local" type="button">本地文件</button>
+                            <button class="pac-tab" data-pac="remote" type="button">远程地址</button>
+                        </div>
+                    </div>
+                    <div class="pac-panel active" data-panel="builtin">
+                        <label class="sub-label">
+                            分流域名 <span class="count" id="domainCount">32</span> 个（可编辑）
+                        </label>
+                        <textarea id="proxyDomains" style="height:88px">*.google.com
+*.googleapis.com
+*.youtube.com
+*.googlevideo.com
+*.ytimg.com
+*.github.com
+*.githubusercontent.com
+*.openai.com
+*.chatgpt.com
+*.anthropic.com
+*.claude.ai
+*.twitter.com
+*.x.com
+*.facebook.com
+*.instagram.com
+*.telegram.org
+*.wikipedia.org
+*.reddit.com
+*.medium.com
+*.discord.com
+*.notion.so
+*.docker.com
+*.npmjs.com
+*.stackoverflow.com
+*.cloudflare.com
+*.amazonaws.com
+*.gstatic.com
+*.ggpht.com
+*.t.me
+*.whatsapp.com
+*.signal.org
+*.protonmail.com</textarea>
+                    </div>
+                    <div class="pac-panel" data-panel="local">
+                        <label class="sub-label">PAC 文件路径</label>
+                        <div class="file-picker">
+                            <input type="text" id="localPacPath" placeholder="C:\Users\YE\gfwlist.pac" readonly>
+                            <button class="browse-btn" id="browsePac" type="button">浏览</button>
+                        </div>
+                        <div class="pac-hint">
+                            推荐：<a href="https://github.com/gfwlist/gfwlist" target="_blank">gfwlist</a> ·
+                            <a href="https://github.com/ACL4SSR/ACL4SSR" target="_blank">ACL4SSR</a> ·
+                            <a href="https://github.com/Loyalsoldier/domain-list-custom" target="_blank">Loyalsoldier</a>
+                        </div>
+                    </div>
+                    <div class="pac-panel" data-panel="remote">
+                        <label class="sub-label">PAC 文件 URL</label>
+                        <input type="text" id="remotePacUrl" placeholder="https://raw.githubusercontent.com/.../gfwlist.pac">
+                        <div class="pac-hint">
+                            系统会定期自动拉取，无需手动下载。
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pac-divider" id="pacDivider"></div>
+
+                <div>
+                    <label class="sub-label">例外地址（分号分隔）</label>
+                    <textarea id="override" style="height:96px">localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*</textarea>
+                </div>
+
+                <div class="auto-start-row">
+                    <span class="auto-start-label">开机自启动</span>
+                    <button class="toggle" id="autoStartToggle" type="button" title="点击切换开机自启动"></button>
+                </div>
+            </div>
+        </div>
+
+        <button class="save-btn" id="saveBtn">保存设置</button>
+    </div>
+
+    <div class="footer">
+        <span>v1.0.0</span>
+        <button class="center" id="resetBtn">恢复默认</button>
+        <a href="https://github.com/ye1225/NASProxyTray" target="_blank">GitHub</a>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <div class="modal-overlay" id="closeModal">
+        <div class="modal">
+            <div class="modal-title">有未保存的更改</div>
+            <div class="modal-text">你修改了设置但还没保存，直接关闭会丢失这些更改。</div>
+            <div class="modal-actions">
+                <button class="modal-btn cancel" id="modalCancel">返回</button>
+                <button class="modal-btn confirm" id="modalConfirm">不保存关闭</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+const DEFAULTS = {
+    server: '192.168.31.126',
+    port: '41634',
+    override: 'localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*',
+    domains: '*.google.com\n*.googleapis.com\n*.youtube.com\n*.googlevideo.com\n*.ytimg.com\n*.github.com\n*.githubusercontent.com\n*.openai.com\n*.chatgpt.com\n*.anthropic.com\n*.claude.ai\n*.twitter.com\n*.x.com\n*.facebook.com\n*.instagram.com\n*.telegram.org\n*.wikipedia.org\n*.reddit.com\n*.medium.com\n*.discord.com\n*.notion.so\n*.docker.com\n*.npmjs.com\n*.stackoverflow.com\n*.cloudflare.com\n*.amazonaws.com\n*.gstatic.com\n*.ggpht.com\n*.t.me\n*.whatsapp.com\n*.signal.org\n*.protonmail.com'
+};
+
+let isProxyOn = false;
+let autoStart = false;
+let currentMode = 'global';
+let currentPacSource = 'builtin';
+let dirty = false;
+let connTestTimer = null;
+
+const switchBtn       = document.getElementById('switchBtn');
+const switchIcon      = document.getElementById('switchIcon');
+const switchLine      = document.getElementById('switchLine');
+const statusTitle     = document.getElementById('statusTitle');
+const statusDesc      = document.getElementById('statusDesc');
+const statusBadge     = document.getElementById('statusBadge');
+const badgeText       = document.getElementById('badgeText');
+const serverInput     = document.getElementById('server');
+const portInput       = document.getElementById('port');
+const overrideInput   = document.getElementById('override');
+const saveBtn         = document.getElementById('saveBtn');
+const resetBtn        = document.getElementById('resetBtn');
+const toast           = document.getElementById('toast');
+const advToggle       = document.getElementById('advancedToggle');
+const advPanel        = document.getElementById('advancedPanel');
+const advancedHint    = document.getElementById('advancedHint');
+const autoStartToggle = document.getElementById('autoStartToggle');
+const modeCards       = document.querySelectorAll('.mode-card');
+const pacBlock        = document.getElementById('pacBlock');
+const pacDivider      = document.getElementById('pacDivider');
+const pacTabs         = document.querySelectorAll('.pac-tab');
+const pacPanels       = document.querySelectorAll('.pac-panel');
+const proxyDomains    = document.getElementById('proxyDomains');
+const domainCount     = document.getElementById('domainCount');
+const localPacPath    = document.getElementById('localPacPath');
+const browsePacBtn    = document.getElementById('browsePac');
+const remotePacUrl    = document.getElementById('remotePacUrl');
+const connInline      = document.getElementById('connInline');
+const connText        = document.getElementById('connText');
+const closeModal      = document.getElementById('closeModal');
+const modalCancel     = document.getElementById('modalCancel');
+const modalConfirm    = document.getElementById('modalConfirm');
+
+let toastTimer = null;
+function showToast(msg, type) {
+    toast.textContent = msg;
+    toast.className = 'toast show ' + (type || '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toast.className = 'toast'; }, 2000);
+}
+
+function updateDomainCount() {
+    const lines = proxyDomains.value.split('\n').filter(l => l.trim());
+    domainCount.textContent = lines.length;
+}
+
+function updateAdvancedHint() {
+    const baseHint = currentMode === 'smart' ? 'PAC 规则 · 例外 · 自启动' : '例外地址 · 开机自启动';
+    advancedHint.textContent = baseHint;
+
+    const customOverride = overrideInput.value.trim() !== DEFAULTS.override;
+    const customStart = autoStart === true;
+    const customPac = currentMode === 'smart' && (
+        (currentPacSource === 'local' && localPacPath.value.trim() !== '') ||
+        (currentPacSource === 'remote' && remotePacUrl.value.trim() !== '') ||
+        (currentPacSource === 'builtin' && proxyDomains.value.trim() !== DEFAULTS.domains)
+    );
+
+    const hasCustom = customOverride || customStart || customPac;
+    advToggle.classList.toggle('has-custom', hasCustom);
+}
+
+function markDirty() {
+    if (!dirty) {
+        dirty = true;
+        saveBtn.classList.add('dirty');
+    }
+}
+
+function clearDirty() {
+    dirty = false;
+    saveBtn.classList.remove('dirty');
+}
+
+function modeLabel() {
+    return currentMode === 'global' ? '全局代理' : '智能分流';
+}
+
+function updateUI() {
+    if (isProxyOn) {
+        switchBtn.classList.add('on');
+        statusTitle.textContent = '代理已开启';
+        statusTitle.classList.add('on');
+        statusDesc.textContent = modeLabel() + ' · ' + serverInput.value + ':' + portInput.value;
+        switchIcon.setAttribute('d', 'M9 12l2 2 4-4');
+        switchLine.style.display = 'none';
+        statusBadge.classList.add('on');
+        badgeText.textContent = '运行中';
+    } else {
+        switchBtn.classList.remove('on');
+        statusTitle.textContent = '代理已关闭';
+        statusTitle.classList.remove('on');
+        statusDesc.textContent = '点击左侧按钮开启';
+        switchIcon.setAttribute('d', 'M18.36 6.64a9 9 0 1 1-12.73 0');
+        switchLine.style.display = '';
+        statusBadge.classList.remove('on');
+        badgeText.textContent = '已停止';
+    }
+    updateAdvancedHint();
+}
+
+function setConnState(state, text) {
+    connInline.className = 'conn-inline' + (state ? ' ' + state : '');
+    connText.textContent = text;
+}
+
+function testConnection() {
+    const host = serverInput.value.trim();
+    const port = portInput.value.trim();
+    const p = parseInt(port, 10);
+
+    if (!host || !port || isNaN(p) || p < 1 || p > 65535) {
+        setConnState('', '等待检测');
+        return;
+    }
+
+    setConnState('testing', '检测中');
+
+    setTimeout(() => {
+        const ok = Math.random() > 0.15;
+        const latency = ok ? Math.floor(5 + Math.random() * 40) : 0;
+        if (ok) {
+            setConnState('ok', latency + 'ms');
+        } else {
+            setConnState('fail', '不可达');
+        }
+    }, 400 + Math.random() * 300);
+}
+
+function scheduleConnTest() {
+    clearTimeout(connTestTimer);
+    connTestTimer = setTimeout(testConnection, 500);
+}
+
+serverInput.addEventListener('input', () => { markDirty(); scheduleConnTest(); });
+portInput.addEventListener('input', (e) => {
+    e.target.value = e.target.value.replace(/[^0-9]/g, '');
+    markDirty();
+    scheduleConnTest();
+});
+
+switchBtn.addEventListener('click', () => {
+    isProxyOn = !isProxyOn;
+    updateUI();
+    showToast(isProxyOn ? '代理已开启 · ' + modeLabel() : '代理已关闭', 'success');
+});
+
+modeCards.forEach(card => {
+    card.addEventListener('click', () => {
+        if (card.classList.contains('active')) return;
+        modeCards.forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+        currentMode = card.dataset.mode;
+
+        advToggle.classList.remove('expanded');
+        advPanel.classList.remove('expanded');
+
+        const smart = (currentMode === 'smart');
+        pacBlock.classList.toggle('visible', smart);
+        pacDivider.classList.toggle('visible', smart);
+
+        markDirty();
+        updateUI();
+        showToast('已切换到' + modeLabel(), 'success');
+    });
+});
+
+pacTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+        pacTabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        currentPacSource = tab.dataset.pac;
+        pacPanels.forEach(p => p.classList.toggle('active', p.dataset.panel === currentPacSource));
+        markDirty();
+        updateAdvancedHint();
+    });
+});
+
+proxyDomains.addEventListener('input', () => {
+    updateDomainCount();
+    markDirty();
+    updateAdvancedHint();
+});
+proxyDomains.addEventListener('change', updateAdvancedHint);
+
+browsePacBtn.addEventListener('click', () => {
+    const demo = 'D:\\Desktop\\proxy\\gfwlist.pac';
+    localPacPath.value = demo;
+    markDirty();
+    updateAdvancedHint();
+    showToast('已选择：gfwlist.pac', 'success');
+});
+
+remotePacUrl.addEventListener('input', () => {
+    markDirty();
+    updateAdvancedHint();
+});
+
+autoStartToggle.addEventListener('click', () => {
+    autoStart = !autoStart;
+    autoStartToggle.classList.toggle('on', autoStart);
+    markDirty();
+    updateAdvancedHint();
+    showToast(autoStart ? '已开启开机自启动' : '已关闭开机自启动', 'success');
+});
+
+overrideInput.addEventListener('input', () => {
+    markDirty();
+    updateAdvancedHint();
+});
+
+advToggle.addEventListener('click', () => {
+    advToggle.classList.toggle('expanded');
+    advPanel.classList.toggle('expanded');
+});
+
+saveBtn.addEventListener('click', () => {
+    const server = serverInput.value.trim();
+    const port = portInput.value.trim();
+    if (!server) { showToast('代理服务器不能为空', 'error'); return; }
+    const p = parseInt(port, 10);
+    if (!port || isNaN(p) || p < 1 || p > 65535) { showToast('端口必须是 1-65535', 'error'); return; }
+    if (currentMode === 'smart') {
+        if (currentPacSource === 'local' && !localPacPath.value.trim()) {
+            showToast('请先选择 PAC 文件', 'error'); return;
+        }
+        if (currentPacSource === 'remote' && !remotePacUrl.value.trim()) {
+            showToast('请填写 PAC 文件 URL', 'error'); return;
+        }
+    }
+
+    saveBtn.classList.add('saving');
+    saveBtn.textContent = '保存中...';
+    saveBtn.disabled = true;
+
+    setTimeout(() => {
+        saveBtn.classList.remove('saving');
+        saveBtn.classList.add('saved');
+        saveBtn.textContent = '已保存 ✓';
+        clearDirty();
+
+        setTimeout(() => {
+            saveBtn.classList.remove('saved');
+            saveBtn.textContent = '保存设置';
+            saveBtn.disabled = false;
+        }, 1200);
+
+        showToast('设置已保存', 'success');
+        updateUI();
+    }, 300);
+});
+
+resetBtn.addEventListener('click', () => {
+    serverInput.value = DEFAULTS.server;
+    portInput.value = DEFAULTS.port;
+    overrideInput.value = DEFAULTS.override;
+    proxyDomains.value = DEFAULTS.domains;
+    autoStart = false;
+    autoStartToggle.classList.remove('on');
+    currentMode = 'global';
+    modeCards.forEach(c => c.classList.toggle('active', c.dataset.mode === 'global'));
+    pacBlock.classList.remove('visible');
+    pacDivider.classList.remove('visible');
+    advToggle.classList.remove('expanded');
+    advPanel.classList.remove('expanded');
+    currentPacSource = 'builtin';
+    pacTabs.forEach(t => t.classList.toggle('active', t.dataset.pac === 'builtin'));
+    pacPanels.forEach(p => p.classList.toggle('active', p.dataset.panel === 'builtin'));
+    localPacPath.value = '';
+    remotePacUrl.value = '';
+    updateDomainCount();
+    clearDirty();
+    updateUI();
+    scheduleConnTest();
+    showToast('已恢复默认值');
+});
+
+document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        if (!saveBtn.disabled) saveBtn.click();
+    }
+});
+
+modalCancel.addEventListener('click', () => {
+    closeModal.classList.remove('show');
+});
+
+modalConfirm.addEventListener('click', () => {
+    closeModal.classList.remove('show');
+    clearDirty();
+    showToast('已放弃更改');
+});
+
+window.addEventListener('beforeunload', (e) => {
+    if (dirty) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+    }
+});
+
+updateDomainCount();
+updateUI();
+scheduleConnTest();
+</script>
+</body>
+</html>
