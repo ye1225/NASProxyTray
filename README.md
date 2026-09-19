@@ -1,10 +1,7 @@
-# ProxyTray
-
+# NASProxyTray
 一个常驻托盘的 Windows 系统代理切换工具。左键托盘图标即可一键开启/关闭系统代理，
 内置 WebView2 界面用于配置规则、切换皮肤。
-
-![界面截图](docs/screenshot.png)
-
+<img width="442" height="524" alt="image" src="https://github.com/user-attachments/assets/7924e5e3-33c3-486f-b86b-797ea2b7cabc" />
 ---
 
 ## ✨ 功能
@@ -47,18 +44,6 @@
 
 > 解压后**不要单独移动 exe**，`lib\` 和 `ui\` 目录要跟它在一起。
 
-### 方式二：从源码运行
-
-```powershell
-git clone https://github.com/你的用户名/ProxyTray.git
-cd ProxyTray
-.\debug.bat
-```
-
-`debug.bat` 会把所有输出同时写到 `run.log`，方便排查问题。
-
----
-
 ## 🖱️ 使用方法
 
 | 操作 | 效果 |
@@ -74,81 +59,3 @@ cd ProxyTray
 3. 保存后左键点击图标即可生效
 
 > 开启后可在「Windows 设置 → 网络和 Internet → 代理」里看到自动配置已写入。
-
----
-
-## 🛠️ 开发者：如何打包成 exe
-
-### 环境准备
-
-```powershell
-# 安装 ps2exe（只需一次）
-Install-Module ps2exe -Scope CurrentUser -Force
-```
-
-### 一键打包
-
-```powershell
-.\build.ps1
-```
-
-产物在 `dist\ProxyTray.exe`，把它和 `lib\`、`ui\` 一起分发。
-
-### 目录结构
-
-```
-ProxyTray/
-├── ProxyTray.ps1          # 主程序（源码）
-├── build.ps1              # 一键打包脚本
-├── debug.bat           # 开发调试入口
-├── ui/                    # WebView2 界面资源（HTML/CSS/JS）
-├── lib/                   # WebView2 运行时 DLL（随程序分发）
-├── assets/                # 图标等静态资源
-├── dist/                  # 打包产物（不提交 git）
-└── .gitignore
-```
-
----
-
-## ❓ 常见问题
-
-<details>
-<summary><b>双击没反应 / 托盘没图标</b></summary>
-
-先看目录里有没有 `run.log`，或者右键托盘前先跑一次 `debug.bat` 看报警。
-最常见原因是 **缺少 WebView2 Runtime**，见上方说明。
-</details>
-
-<details>
-<summary><b>界面白屏</b></summary>
-
-同样先确认 WebView2 Runtime 已安装。若已安装仍白屏，删除 `%LOCALAPPDATA%\ProxyTray\WebView2`
-目录（清缓存）后重试。
-</details>
-
-<details>
-<summary><b>报错 "找不到 WebView2Loader.dll"</b></summary>
-
-说明 `lib\` 目录没跟 exe 放在一起，或者放在了一起但被你单独挪走了 exe。
-**exe、lib\、ui\ 必须保持同目录。**
-</details>
-
-<details>
-<summary><b>代理开关点了没效果</b></summary>
-
-1. 确认程序以当前用户权限运行（不要用管理员，系统代理是按用户存的）
-2. 检查被杀毒软件/公司组策略拦截了注册表写入
-</details>
-
-<details>
-<summary><b>想彻底卸载</b></summary>
-
-程序本身免安装，删除文件夹即可。另外删除残留配置：
-`%LOCALAPPDATA%\ProxyTray\`
-</details>
-
----
-
-## 📄 许可证
-
-[MIT](LICENSE) © 2026 [你的名字]
