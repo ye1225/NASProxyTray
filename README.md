@@ -1,7 +1,8 @@
 # NASProxyTray
 一个常驻托盘的 Windows 系统代理切换工具。左键托盘图标即可一键开启/关闭系统代理，
 内置 WebView2 界面用于配置规则、切换皮肤。
-<img width="442" height="524" alt="image" src="https://github.com/user-attachments/assets/7924e5e3-33c3-486f-b86b-797ea2b7cabc" />
+<img width="442" height="524" alt="image" src="https://github.com/user-attachments/assets/db8a55c8-a43b-4b91-b12f-6c5df4400749" />
+
 ---
 
 ## ✨ 功能
