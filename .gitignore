@@ -1,11 +1,46 @@
 ﻿# 构建产物
-*.exe
+dist/
+dist_backup/
+_pack/
+bin/
+obj/
 
-# IDE / 临时文件
+# WebView2 运行时数据
+.webview2/
+EBWebView/
+*.ldb
+*.sst
+
+# 日志 / 临时
+*.log
+log.txt
+run.log
+tmp/
+*.tmp
+*.bak
+
+# 可执行文件
+*.exe
+*.pdb
+*.suo
+*.user
+
+# 注意：这里故意不写 *.dll，因为 lib/ 下的 3 个 DLL 需要提交
+
+# 编辑器 / 系统
 .vscode/
 .idea/
-*.tmp
-*.log
+*.swp
+*~
+Thumbs.db
+Desktop.ini
 
-# 本地配置
+# 本地敏感配置
+config.local.json
+*.secret
+.env
+
+# ========== 用户运行时数据（每台机器不一样，不入库）==========
 config.json
+proxy.pac
+proxy_remote.pac

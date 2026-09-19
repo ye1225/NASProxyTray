@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -110,7 +110,6 @@ body {
     gap: 8px;
 }
 
-/* ---- 合并的代理地址输入框 ---- */
 .proxy-input {
     position: relative;
     display: grid;
@@ -156,7 +155,7 @@ body {
     display: flex;
     align-items: center;
     min-width: 0;
-    padding-left: 26px; /* 端口右移，和"智能分流"文字左边缘对齐 */
+    padding-left: 26px;
 }
 .proxy-port {
     width: 72px;
@@ -288,13 +287,22 @@ textarea {
 .collapse-toggle.has-custom.expanded .hint { opacity: 0; }
 .collapse-toggle.has-custom .custom-dot { display: block; }
 
+/* ---- !!! 关键修改：不再对高度做动画 → 只触发一次窗口 resize → 不闪 ---- */
 .collapse-panel {
     max-height: 0; overflow: hidden;
-    transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: none;
 }
-.collapse-panel.expanded { max-height: 560px; }
+.collapse-panel.expanded { max-height: 700px; }
 .collapse-panel-inner {
     padding-top: 4px; display: flex; flex-direction: column; gap: 12px;
+    /* 用「淡入 + 微上滑」代替高度动画：不动布局高度，不触发 resize */
+    opacity: 0;
+    transform: translateY(-6px);
+    transition: opacity 0.18s ease-out, transform 0.18s ease-out;
+}
+.collapse-panel.expanded .collapse-panel-inner {
+    opacity: 1;
+    transform: translateY(0);
 }
 
 .pac-block { display: none; flex-direction: column; gap: 8px; }
@@ -386,6 +394,7 @@ textarea {
     box-shadow: 0 4px 14px rgba(0, 122, 255, 0.3);
 }
 .save-btn:active { transform: scale(0.99); }
+.save-btn:disabled { cursor: wait; opacity: 0.9; }
 .save-btn.dirty::after {
     content: '';
     display: inline-block;
@@ -393,11 +402,8 @@ textarea {
     background: white; margin-left: 6px; margin-bottom: 2px;
     animation: dirtyBlink 1.5s ease-in-out infinite;
 }
-@keyframes dirtyBlink {
-    0%, 100% { opacity: 1; }
-    50%      { opacity: 0.3; }
-}
-.save-btn.saving { background: var(--accent-hover); cursor: wait; }
+@keyframes dirtyBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+.save-btn.saving { background: var(--accent-hover); }
 .save-btn.saved {
     background: var(--green);
     box-shadow: 0 4px 14px rgba(52, 199, 89, 0.3);
@@ -425,6 +431,7 @@ textarea {
     box-shadow: var(--shadow-hover); opacity: 0;
     transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     pointer-events: none; border: 1px solid var(--border); z-index: 100;
+    max-width: 380px;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .toast.success { border-color: var(--green); color: var(--green); }
@@ -547,38 +554,7 @@ textarea {
                         <label class="sub-label">
                             分流域名 <span class="count" id="domainCount">32</span> 个（可编辑）
                         </label>
-                        <textarea id="proxyDomains" style="height:88px">*.google.com
-*.googleapis.com
-*.youtube.com
-*.googlevideo.com
-*.ytimg.com
-*.github.com
-*.githubusercontent.com
-*.openai.com
-*.chatgpt.com
-*.anthropic.com
-*.claude.ai
-*.twitter.com
-*.x.com
-*.facebook.com
-*.instagram.com
-*.telegram.org
-*.wikipedia.org
-*.reddit.com
-*.medium.com
-*.discord.com
-*.notion.so
-*.docker.com
-*.npmjs.com
-*.stackoverflow.com
-*.cloudflare.com
-*.amazonaws.com
-*.gstatic.com
-*.ggpht.com
-*.t.me
-*.whatsapp.com
-*.signal.org
-*.protonmail.com</textarea>
+                        <textarea id="proxyDomains" style="height:88px"></textarea>
                     </div>
                     <div class="pac-panel" data-panel="local">
                         <label class="sub-label">PAC 文件路径</label>
@@ -596,7 +572,7 @@ textarea {
                         <label class="sub-label">PAC 文件 URL</label>
                         <input type="text" id="remotePacUrl" placeholder="https://raw.githubusercontent.com/.../gfwlist.pac">
                         <div class="pac-hint">
-                            系统会定期自动拉取，无需手动下载。
+                            启动时拉取一次；拉取失败会保留上一次缓存。
                         </div>
                     </div>
                 </div>
@@ -605,7 +581,7 @@ textarea {
 
                 <div>
                     <label class="sub-label">例外地址（分号分隔）</label>
-                    <textarea id="override" style="height:96px">localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*</textarea>
+                    <textarea id="override" style="height:96px"></textarea>
                 </div>
 
                 <div class="auto-start-row">
@@ -685,12 +661,27 @@ const closeModal      = document.getElementById('closeModal');
 const modalCancel     = document.getElementById('modalCancel');
 const modalConfirm    = document.getElementById('modalConfirm');
 
+// ---------- 与 PS 后端的桥 ----------
+function postPS(action, data) {
+    try {
+        window.chrome.webview.postMessage(JSON.stringify(Object.assign({ action: action }, data || {})));
+        return true;
+    } catch (e) { console.error('postPS failed', e); return false; }
+}
+
+// 把当前主题背景色告诉 PS，让窗体背景与之相同 → resize 时不会闪黑
+function reportTheme() {
+    var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    postPS('theme', { dark: dark });
+}
+
 let toastTimer = null;
 function showToast(msg, type) {
+    if (!msg) return;
     toast.textContent = msg;
     toast.className = 'toast show ' + (type || '');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { toast.className = 'toast'; }, 2000);
+    toastTimer = setTimeout(() => { toast.className = 'toast'; }, 2400);
 }
 
 function updateDomainCount() {
@@ -710,25 +701,16 @@ function updateAdvancedHint() {
         (currentPacSource === 'builtin' && proxyDomains.value.trim() !== DEFAULTS.domains)
     );
 
-    const hasCustom = customOverride || customStart || customPac;
-    advToggle.classList.toggle('has-custom', hasCustom);
+    advToggle.classList.toggle('has-custom', customOverride || customStart || customPac);
 }
 
 function markDirty() {
-    if (!dirty) {
-        dirty = true;
-        saveBtn.classList.add('dirty');
-    }
+    if (!dirty) { dirty = true; saveBtn.classList.add('dirty'); }
 }
-
 function clearDirty() {
-    dirty = false;
-    saveBtn.classList.remove('dirty');
+    dirty = false; saveBtn.classList.remove('dirty');
 }
-
-function modeLabel() {
-    return currentMode === 'global' ? '全局代理' : '智能分流';
-}
+function modeLabel() { return currentMode === 'global' ? '全局代理' : '智能分流'; }
 
 function updateUI() {
     if (isProxyOn) {
@@ -762,30 +744,120 @@ function testConnection() {
     const host = serverInput.value.trim();
     const port = portInput.value.trim();
     const p = parseInt(port, 10);
-
     if (!host || !port || isNaN(p) || p < 1 || p > 65535) {
         setConnState('', '等待检测');
         return;
     }
-
     setConnState('testing', '检测中');
-
-    setTimeout(() => {
-        const ok = Math.random() > 0.15;
-        const latency = ok ? Math.floor(5 + Math.random() * 40) : 0;
-        if (ok) {
-            setConnState('ok', latency + 'ms');
-        } else {
-            setConnState('fail', '不可达');
-        }
-    }, 400 + Math.random() * 300);
+    postPS('testConnection', { server: host, port: port });
 }
 
 function scheduleConnTest() {
     clearTimeout(connTestTimer);
-    connTestTimer = setTimeout(testConnection, 500);
+    connTestTimer = setTimeout(testConnection, 400);
 }
 
+function collectConfig() {
+    return {
+        server: serverInput.value.trim(),
+        port: portInput.value.trim(),
+        override: overrideInput.value,
+        mode: currentMode,
+        pacSource: currentPacSource,
+        pacDomains: proxyDomains.value,
+        localPacPath: localPacPath.value.trim(),
+        remotePacUrl: remotePacUrl.value.trim(),
+        autoStart: autoStart
+    };
+}
+
+function applyConfig(cfg) {
+    if (!cfg) return;
+    serverInput.value     = cfg.server || DEFAULTS.server;
+    portInput.value       = cfg.port   || DEFAULTS.port;
+    overrideInput.value   = cfg.override || DEFAULTS.override;
+    proxyDomains.value    = cfg.pacDomains || DEFAULTS.domains;
+    localPacPath.value    = cfg.localPacPath || '';
+    remotePacUrl.value    = cfg.remotePacUrl || '';
+
+    currentMode = cfg.mode || 'global';
+    modeCards.forEach(c => c.classList.toggle('active', c.dataset.mode === currentMode));
+
+    currentPacSource = cfg.pacSource || 'builtin';
+    pacTabs.forEach(t => t.classList.toggle('active', t.dataset.pac === currentPacSource));
+    pacPanels.forEach(p => p.classList.toggle('active', p.dataset.panel === currentPacSource));
+
+    const smart = (currentMode === 'smart');
+    pacBlock.classList.toggle('visible', smart);
+    pacDivider.classList.toggle('visible', smart);
+
+    autoStart = !!cfg.autoStart;
+    autoStartToggle.classList.toggle('on', autoStart);
+
+    isProxyOn = !!cfg.enabled;
+
+    updateDomainCount();
+    clearDirty();
+    updateUI();
+}
+
+function handlePSMessage(e) {
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+
+    switch (msg.action) {
+        case 'config':
+            applyConfig(msg.config);
+            scheduleConnTest();
+            break;
+
+        case 'state':
+            isProxyOn = !!msg.enabled;
+            updateUI();
+            if (msg.msg) showToast(msg.msg, msg.ok ? 'success' : 'error');
+            break;
+
+        case 'saved':
+            saveBtn.classList.remove('saving');
+            saveBtn.classList.add('saved');
+            saveBtn.textContent = '已保存 ✓';
+            clearDirty();
+            setTimeout(() => {
+                saveBtn.classList.remove('saved');
+                saveBtn.textContent = '保存设置';
+                saveBtn.disabled = false;
+            }, 1200);
+            if (msg.config) applyConfig(msg.config);
+            showToast(msg.msg || '设置已保存', msg.ok ? 'success' : 'error');
+            break;
+
+        case 'toast':
+            showToast(msg.msg, msg.type);
+            break;
+
+        case 'connResult':
+            if (msg.ok) setConnState('ok', msg.latency + 'ms');
+            else        setConnState('fail', '不可达');
+            break;
+
+        case 'filePicked':
+            if (msg.path) {
+                localPacPath.value = msg.path;
+                markDirty();
+                updateAdvancedHint();
+                showToast('已选择 PAC 文件', 'success');
+            } else {
+                showToast('已取消选择');
+            }
+            break;
+    }
+}
+
+if (window.chrome && window.chrome.webview) {
+    window.chrome.webview.addEventListener('message', handlePSMessage);
+}
+
+// ---------- 事件 ----------
 serverInput.addEventListener('input', () => { markDirty(); scheduleConnTest(); });
 portInput.addEventListener('input', (e) => {
     e.target.value = e.target.value.replace(/[^0-9]/g, '');
@@ -794,9 +866,11 @@ portInput.addEventListener('input', (e) => {
 });
 
 switchBtn.addEventListener('click', () => {
-    isProxyOn = !isProxyOn;
+    const target = !isProxyOn;
+    isProxyOn = target;
     updateUI();
-    showToast(isProxyOn ? '代理已开启 · ' + modeLabel() : '代理已关闭', 'success');
+    showToast(target ? '正在开启代理…' : '正在关闭代理…');
+    postPS('toggleProxy', { enabled: target, config: collectConfig() });
 });
 
 modeCards.forEach(card => {
@@ -815,7 +889,6 @@ modeCards.forEach(card => {
 
         markDirty();
         updateUI();
-        showToast('已切换到' + modeLabel(), 'success');
     });
 });
 
@@ -835,15 +908,8 @@ proxyDomains.addEventListener('input', () => {
     markDirty();
     updateAdvancedHint();
 });
-proxyDomains.addEventListener('change', updateAdvancedHint);
 
-browsePacBtn.addEventListener('click', () => {
-    const demo = 'D:\\Desktop\\proxy\\gfwlist.pac';
-    localPacPath.value = demo;
-    markDirty();
-    updateAdvancedHint();
-    showToast('已选择：gfwlist.pac', 'success');
-});
+browsePacBtn.addEventListener('click', () => { postPS('browseFile'); });
 
 remotePacUrl.addEventListener('input', () => {
     markDirty();
@@ -851,11 +917,11 @@ remotePacUrl.addEventListener('input', () => {
 });
 
 autoStartToggle.addEventListener('click', () => {
-    autoStart = !autoStart;
+    const target = !autoStart;
+    autoStart = target;
     autoStartToggle.classList.toggle('on', autoStart);
-    markDirty();
+    postPS('setAutoStart', { enabled: target });
     updateAdvancedHint();
-    showToast(autoStart ? '已开启开机自启动' : '已关闭开机自启动', 'success');
 });
 
 overrideInput.addEventListener('input', () => {
@@ -887,47 +953,16 @@ saveBtn.addEventListener('click', () => {
     saveBtn.textContent = '保存中...';
     saveBtn.disabled = true;
 
-    setTimeout(() => {
+    const sent = postPS('saveConfig', { config: collectConfig() });
+    if (!sent) {
         saveBtn.classList.remove('saving');
-        saveBtn.classList.add('saved');
-        saveBtn.textContent = '已保存 ✓';
-        clearDirty();
-
-        setTimeout(() => {
-            saveBtn.classList.remove('saved');
-            saveBtn.textContent = '保存设置';
-            saveBtn.disabled = false;
-        }, 1200);
-
-        showToast('设置已保存', 'success');
-        updateUI();
-    }, 300);
+        saveBtn.textContent = '保存设置';
+        saveBtn.disabled = false;
+        showToast('保存失败：未连接后端', 'error');
+    }
 });
 
-resetBtn.addEventListener('click', () => {
-    serverInput.value = DEFAULTS.server;
-    portInput.value = DEFAULTS.port;
-    overrideInput.value = DEFAULTS.override;
-    proxyDomains.value = DEFAULTS.domains;
-    autoStart = false;
-    autoStartToggle.classList.remove('on');
-    currentMode = 'global';
-    modeCards.forEach(c => c.classList.toggle('active', c.dataset.mode === 'global'));
-    pacBlock.classList.remove('visible');
-    pacDivider.classList.remove('visible');
-    advToggle.classList.remove('expanded');
-    advPanel.classList.remove('expanded');
-    currentPacSource = 'builtin';
-    pacTabs.forEach(t => t.classList.toggle('active', t.dataset.pac === 'builtin'));
-    pacPanels.forEach(p => p.classList.toggle('active', p.dataset.panel === 'builtin'));
-    localPacPath.value = '';
-    remotePacUrl.value = '';
-    updateDomainCount();
-    clearDirty();
-    updateUI();
-    scheduleConnTest();
-    showToast('已恢复默认值');
-});
+resetBtn.addEventListener('click', () => { postPS('resetConfig'); });
 
 document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
@@ -936,27 +971,27 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-modalCancel.addEventListener('click', () => {
-    closeModal.classList.remove('show');
-});
-
+modalCancel.addEventListener('click', () => closeModal.classList.remove('show'));
 modalConfirm.addEventListener('click', () => {
     closeModal.classList.remove('show');
     clearDirty();
-    showToast('已放弃更改');
 });
 
-window.addEventListener('beforeunload', (e) => {
-    if (dirty) {
-        e.preventDefault();
-        e.returnValue = '';
-        return '';
-    }
-});
-
+// ---------- 初始化 ----------
+proxyDomains.value   = DEFAULTS.domains;
+overrideInput.value  = DEFAULTS.override;
 updateDomainCount();
 updateUI();
-scheduleConnTest();
+
+// 向 PS 要当前配置
+postPS('getConfig');
+
+// 报告主题 + 监听主题切换
+reportTheme();
+try {
+    window.matchMedia('(prefers-color-scheme: dark)')
+          .addEventListener('change', reportTheme);
+} catch (e) {}
 </script>
 </body>
 </html>

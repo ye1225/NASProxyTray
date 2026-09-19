@@ -1,416 +1,1366 @@
-﻿#Requires -Version 5.1
-<#
-    ProxyTray.ps1  —  NAS Proxy Tray
-    全 ASCII，中文由 Unicode 码点拼接，避免编码乱码
-    图标由 build.ps1 自动注入到 $IconBase64
-#>
+﻿# ================================================================
+#  ProxyTray.ps1  (v23 - EXE 打包适配版)
+#  相对 v22 只改「打包成 exe 所必需」的部分，业务逻辑一行未动：
+#   1. 自身路径探测（exe 内 $PSCommandPath/$PSScriptRoot 为空）
+#   2. STA 重开兼容 exe（带防无限重开保护）
+#   3. 单实例互斥，防止双击两次出现两个托盘
+#   4. 数据目录可写性探测，exe 放只读目录也能跑
+#   5. 全量日志落盘，-noConsole 后仍可排查
+# ================================================================
+$ErrorActionPreference = 'Stop'
+
+# ---------------------------------------------------------------
+# 0) 自身路径探测（.ps1 直跑 / ps2exe 打包 exe 通用）
+# ---------------------------------------------------------------
+$script:appSelf  = $null
+$script:appIsExe = $false
+
+# a) 直跑 .ps1：$PSCommandPath 有效
+if (-not [string]::IsNullOrWhiteSpace($PSCommandPath) -and
+    ([System.IO.Path]::GetExtension($PSCommandPath) -ieq '.ps1') -and
+    (Test-Path -LiteralPath $PSCommandPath)) {
+    $script:appSelf = $PSCommandPath
+}
+
+# b) 打包 exe：$PSCommandPath 为空，取命令行第 0 项
+if (-not $script:appSelf) {
+    try {
+        $c0 = [Environment]::GetCommandLineArgs()[0]
+        if ($c0) {
+            $c0 = [System.IO.Path]::GetFullPath($c0)
+            $nm = [System.IO.Path]::GetFileNameWithoutExtension($c0).ToLower()
+            if ($nm -ne 'powershell' -and $nm -ne 'pwsh' -and (Test-Path -LiteralPath $c0)) {
+                $script:appSelf = $c0
+            }
+        }
+    } catch { }
+}
+
+# c) 兜底：进程主模块
+if (-not $script:appSelf) {
+    try {
+        $mm = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+        if ($mm) { $script:appSelf = $mm }
+    } catch { }
+}
+
+if ($script:appSelf) {
+    $script:appIsExe = ([System.IO.Path]::GetExtension($script:appSelf) -ieq '.exe')
+}
+
+# ---------------------------------------------------------------
+# 1) 必须 STA（WinForms + OpenFileDialog 需要）
+# ---------------------------------------------------------------
+if ([System.Threading.Thread]::CurrentThread.ApartmentState -ne [System.Threading.ApartmentState]::STA) {
+    if ($env:PROXYTRAY_STA_RETRY -eq '1') {
+        Write-Host "[ProxyTray] WARN: 宿主仍为 MTA，继续运行（选择文件对话框可能不可用）" -ForegroundColor Yellow
+    } else {
+        $env:PROXYTRAY_STA_RETRY = '1'
+        try {
+            if ($script:appIsExe) {
+                Start-Process -FilePath $script:appSelf
+            } else {
+                $psExe = Join-Path $PSHOME 'powershell.exe'
+                if (-not (Test-Path -LiteralPath $psExe)) { $psExe = 'powershell.exe' }
+                Start-Process -FilePath $psExe -ArgumentList @(
+                    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$($script:appSelf)`""
+                )
+            }
+        } catch { }
+        exit
+    }
+}
+
+# ---------------------------------------------------------------
+# 2) 单实例（防止双击两次 → 两个托盘 / 两个 PAC 端口）
+# ---------------------------------------------------------------
+$script:mutex      = $null
+$script:hasMutex   = $false
+try {
+    Add-Type -AssemblyName System.Windows.Forms
+    $script:mutex = New-Object System.Threading.Mutex($false, 'Local\NASProxyTray_SingleInstance')
+    $script:hasMutex = $script:mutex.WaitOne(0, $false)
+    if (-not $script:hasMutex) {
+        try {
+            [System.Windows.Forms.MessageBox]::Show(
+                'NAS Proxy 已经在运行了，请查看右下角托盘图标。',
+                'NAS Proxy', 'OK', 'Information') | Out-Null
+        } catch { }
+        exit 0
+    }
+} catch { }
+
+# ---------------------------------------------------------------
+# 3) 根目录（只读内容）/ 数据目录（可写内容）
+# ---------------------------------------------------------------
+$root = $null
+if ($script:appIsExe) {
+    $root = Split-Path -Parent $script:appSelf
+} elseif (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+    $root = $PSScriptRoot
+} elseif ($script:appSelf) {
+    $root = Split-Path -Parent $script:appSelf
+} else {
+    $root = (Get-Location).Path
+}
+
+# 数据目录可写性探测：exe 放在 Program Files 等只读位置时自动退到 LOCALAPPDATA
+$script:DataDir = $root
+try {
+    $probeFile = Join-Path $root ('.wtest_' + [Guid]::NewGuid().ToString('N'))
+    Set-Content -LiteralPath $probeFile -Value '1' -Encoding ASCII -ErrorAction Stop
+    Remove-Item -LiteralPath $probeFile -Force -ErrorAction SilentlyContinue
+} catch {
+    $script:DataDir = Join-Path $env:LOCALAPPDATA 'NASProxy'
+    if (-not (Test-Path -LiteralPath $script:DataDir)) {
+        New-Item -ItemType Directory -Force -Path $script:DataDir | Out-Null
+    }
+}
+
+$lib  = Join-Path $root 'lib'
+$html = Join-Path $root 'ui\index.html'
+$udd  = Join-Path $script:DataDir '.webview2'
+
+# ---------------------------------------------------------------
+# 4) 日志：遮蔽 Write-Host，把输出同时写进 ProxyTray.log
+#    （-noConsole 打包后看不到控制台，就靠这个排查）
+#    不想要日志的话，删掉下面这一段即可
+# ---------------------------------------------------------------
+$script:LogFile = Join-Path $script:DataDir 'ProxyTray.log'
+try {
+    if (Test-Path -LiteralPath $script:LogFile) {
+        if ((Get-Item -LiteralPath $script:LogFile).Length -gt 512KB) {
+            Remove-Item -LiteralPath $script:LogFile -Force -ErrorAction SilentlyContinue
+        }
+    }
+} catch { }
+
+function Write-Host {
+    param(
+        [Parameter(Position = 0, ValueFromPipeline = $true)]
+        [object]$Object,
+        [string]$ForegroundColor
+    )
+    process {
+        $text = if ($null -eq $Object) { '' } else { [string]$Object }
+        if ($script:LogFile) {
+            try {
+                Add-Content -LiteralPath $script:LogFile -Encoding UTF8 -ErrorAction SilentlyContinue `
+                    -Value ("[{0}] {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff'), $text)
+            } catch { }
+        }
+        if ($ForegroundColor) {
+            Microsoft.PowerShell.Utility\Write-Host $text -ForegroundColor $ForegroundColor
+        } else {
+            Microsoft.PowerShell.Utility\Write-Host $text
+        }
+    }
+}
+
+Write-Host ("[ProxyTray] mode={0} self={1}" -f $(if ($script:appIsExe) { 'EXE' } else { 'PS1' }), $script:appSelf)
+Write-Host ("[ProxyTray] root={0}  data={1}" -f $root, $script:DataDir)
+Write-Host ("[ProxyTray] apartment={0}" -f [System.Threading.Thread]::CurrentThread.GetApartmentState())
+
+# ---------- DLL 加载目录 ----------
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class NativeLoader {
+    [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
+    public static extern bool SetDllDirectory(string lpPathName);
+}
+'@
+[void][NativeLoader]::SetDllDirectory($lib)
+$env:PATH = "$lib;$env:PATH"
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-# ========== 图标占位符（build.ps1 会替换这一行） ==========
-$IconBase64 = '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'
-
-# ============ 中文码点辅助 ============
-function CN([string]$s) {
-    -join ($s -split ',' | ForEach-Object { [char][Convert]::ToInt32($_, 16) })
+# 关键依赖缺失时给出可见提示（打包后没有控制台，必须弹窗）
+$needCore  = Join-Path $lib 'Microsoft.Web.WebView2.Core.dll'
+$needWin   = Join-Path $lib 'Microsoft.Web.WebView2.WinForms.dll'
+$miss = @()
+if (-not (Test-Path -LiteralPath $needCore)) { $miss += $needCore }
+if (-not (Test-Path -LiteralPath $needWin))  { $miss += $needWin }
+if ($miss.Count -gt 0) {
+    [System.Windows.Forms.MessageBox]::Show(
+        ("缺少 WebView2 依赖库：`n`n{0}`n`n请确认 lib 目录与程序在同一文件夹下。" -f ($miss -join "`n")),
+        'NAS Proxy · 依赖缺失', 'OK', 'Error') | Out-Null
+    exit 1
 }
 
-$T = @{
-    OpenProxy      = CN '5F00,542F,4EE3,7406'
-    CloseProxy     = CN '5173,95ED,4EE3,7406'
-    Settings       = (CN '8BBE,7F6E') + '...'
-    WinProxySet    = (CN '6253,5F00') + ' Windows ' + (CN '4EE3,7406,8BBE,7F6E')
-    Quit           = CN '9000,51FA'
+Add-Type -Path $needCore
+Add-Type -Path $needWin
 
-    Title          = 'NAS ' + (CN '4EE3,7406,8BBE,7F6E')
-    SrvLabel       = (CN '4EE3,7406,670D,52A1,5668,5730,5740') + ':'
-    PortLabel      = (CN '7AEF,53E3') + ':'
-    OvLabel        = (CN '4F8B,5916,5730,5740') + ' (' + (CN '5206,53F7,5206,9694') + ', ' + (CN '4E0D,7ECF,8FC7,4EE3,7406') + '):'
-    ResetBtn       = CN '6062,590D,9ED8,8BA4'
-    SaveBtn        = CN '4FDD,5B58'
-    CancelBtn      = CN '53D6,6D88'
-
-    TrayOn         = 'NAS ' + (CN '4EE3,7406') + ': ' + (CN '5DF2,5F00,542F') + "`n" + (CN '53CC,51FB,5173,95ED')
-    TrayOff        = 'NAS ' + (CN '4EE3,7406') + ': ' + (CN '5DF2,5173,95ED') + "`n" + (CN '53CC,51FB,5F00,542F')
-
-    BalloonOn      = CN '5DF2,5F00,542F,4EE3,7406'
-    BalloonOff     = CN '5DF2,5173,95ED,4EE3,7406'
-    BalloonSaved   = CN '8BBE,7F6E,5DF2,4FDD,5B58'
-    BalloonApplied = CN '8BBE,7F6E,5DF2,4FDD,5B58,5E76,5DF2,5E94,7528,5230,5F53,524D,4EE3,7406'
-
-    BalloonTitle   = 'NAS ' + (CN '4EE3,7406')
-    AppTitle       = 'NAS ' + (CN '4EE3,7406,5F00,5173')
-    InfoTitle      = CN '63D0,793A'
-
-    MsgRunning     = (CN '4EE3,7406,5F00,5173,5DF2,7ECF,5728,8FD0,884C') + ', ' + (CN '8BF7,770B,4EFB,52A1,680F,53F3,4E0B,89D2,6258,76D8,56FE,6807') + '.'
-    MsgEmptySrv    = (CN '4EE3,7406,670D,52A1,5668,5730,5740,4E0D,80FD,4E3A,7A7A') + '.'
-    MsgBadPort     = (CN '7AEF,53E3,5FC5,987B,662F') + ' 1-65535 ' + (CN '4E4B,95F4,7684,6570,5B57') + '.'
-    MsgFail        = (CN '64CD,4F5C,5931,8D25') + ':'
+# ---------- 窗口拖动 ----------
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class NativeDrag {
+    [DllImport("user32.dll")] public static extern bool ReleaseCapture();
+    [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, int lParam);
+    public static void StartDrag(IntPtr hWnd) { ReleaseCapture(); SendMessage(hWnd, 0xA1, 0x2, 0); }
 }
-
-# ============ 配置 ============
-$ConfigDir  = Join-Path $env:APPDATA 'NASProxyTray'
-$ConfigFile = Join-Path $ConfigDir 'config.json'
-
-function Get-DefaultConfig {
-    [PSCustomObject]@{
-        ProxyServer   = '192.168.31.126'
-        ProxyPort     = '41634'
-        ProxyOverride = 'localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*'
-    }
-}
-
-function Save-Config($cfg) {
-    if (-not (Test-Path $ConfigDir)) {
-        New-Item -ItemType Directory -Path $ConfigDir -Force | Out-Null
-    }
-    $cfg | ConvertTo-Json -Depth 3 | Set-Content -Path $ConfigFile -Encoding UTF8
-}
-
-function Load-Config {
-    if (Test-Path $ConfigFile) {
-        try {
-            $json = Get-Content $ConfigFile -Raw -Encoding UTF8 | ConvertFrom-Json
-            $def  = Get-DefaultConfig
-            return [PSCustomObject]@{
-                ProxyServer   = if ($json.ProxyServer) { [string]$json.ProxyServer } else { $def.ProxyServer }
-                ProxyPort     = if ($json.ProxyPort)   { [string]$json.ProxyPort }   else { $def.ProxyPort }
-                ProxyOverride = if ($null -ne $json.ProxyOverride) { [string]$json.ProxyOverride } else { $def.ProxyOverride }
-            }
-        } catch { }
-    }
-    $d = Get-DefaultConfig
-    Save-Config $d
-    return $d
-}
-
-$script:Config = Load-Config
-
-# ============ 单实例 ============
-$script:Mutex = New-Object System.Threading.Mutex($false, 'Local\NASProxyTray')
-if (-not $script:Mutex.WaitOne(0)) {
-    [System.Windows.Forms.MessageBox]::Show($T.MsgRunning, $T.AppTitle)
-    exit
-}
-
-# ============ Win32 ============
-Add-Type -Namespace Native -Name WinInet -MemberDefinition @'
-[DllImport("wininet.dll", SetLastError = true)]
-public static extern bool InternetSetOption(IntPtr hInternet, int dwOption, IntPtr lpBuffer, int dwBufferLength);
 '@
 
-Add-Type -Namespace Native -Name IconApi -MemberDefinition @'
-[DllImport("user32.dll", SetLastError = true)]
-public static extern bool DestroyIcon(IntPtr hIcon);
-'@
-
-# ============ 注册表 ============
-$script:RegPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
-
-function Set-RegValue {
-    param(
-        [Parameter(Mandatory)][string]$Name,
-        [Parameter(Mandatory)][AllowEmptyString()]$Value,
-        [string]$Type = 'String'
-    )
-    New-ItemProperty -Path $script:RegPath -Name $Name -Value $Value -PropertyType $Type -Force | Out-Null
-}
-
-function Get-ProxyState {
-    try {
-        $item = Get-ItemProperty -Path $script:RegPath -ErrorAction Stop
-        return ($item.ProxyEnable -eq 1)
-    } catch { return $false }
-}
-
-function Invoke-SettingsRefresh {
-    [void][Native.WinInet]::InternetSetOption([IntPtr]::Zero, 39, [IntPtr]::Zero, 0)
-    [void][Native.WinInet]::InternetSetOption([IntPtr]::Zero, 37, [IntPtr]::Zero, 0)
-    try { ipconfig /flushdns | Out-Null } catch { }
-}
-
-function Enable-Proxy {
-    $server = '{0}:{1}' -f $script:Config.ProxyServer, $script:Config.ProxyPort
-    Set-RegValue 'ProxyEnable'   1          'DWord'
-    Set-RegValue 'ProxyServer'   $server    'String'
-    Set-RegValue 'ProxyOverride' $script:Config.ProxyOverride 'String'
-    Set-RegValue 'AutoDetect'    0          'DWord'
-    Set-RegValue 'AutoConfigURL' ''         'String'
-    Invoke-SettingsRefresh
-}
-
-function Disable-Proxy {
-    Set-RegValue 'ProxyEnable'   0  'DWord'
-    Set-RegValue 'ProxyServer'   '' 'String'
-    Set-RegValue 'ProxyOverride' '' 'String'
-    Set-RegValue 'AutoDetect'    0  'DWord'
-    Set-RegValue 'AutoConfigURL' '' 'String'
-    Invoke-SettingsRefresh
-}
-
-# ============ 图标 ============
-$script:BaseIcon = $null
-
-function Get-BaseIcon {
-    if ($script:BaseIcon) { return $script:BaseIcon }
-    if (-not $IconBase64 -or $IconBase64 -like '*__ICON*') { return $null }
-    try {
-        $bytes = [Convert]::FromBase64String($IconBase64)
-        $ms = New-Object System.IO.MemoryStream -ArgumentList @(,$bytes)
-        $ms.Position = 0
-        $script:BaseIcon = New-Object System.Drawing.Icon -ArgumentList $ms
-        return $script:BaseIcon
-    } catch {
-        return $null
+# ---------- 圆角 ----------
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class NativeRound {
+    [DllImport("user32.dll", SetLastError=true)]
+    public static extern int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, bool bRedraw);
+    [DllImport("gdi32.dll")]
+    public static extern IntPtr CreateRoundRectRgn(int nLeftRect, int nTopRect, int nRightRect, int nBottomRect, int nWidthEllipse, int nHeightEllipse);
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+    public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+    public static int SetWindowCornerPreference(IntPtr hwnd, int preference) {
+        int val = preference;
+        return DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref val, sizeof(int));
     }
 }
+'@
 
-function New-StatusIcon {
-    param([System.Drawing.Color]$Color)
+# ---------- WinINet（刷新系统代理设置） ----------
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class WinINet {
+    [DllImport("wininet.dll", SetLastError = true)]
+    public static extern bool InternetSetOption(IntPtr hInternet, int dwOption, IntPtr lpBuffer, int dwBufferLength);
+    public const int INTERNET_OPTION_SETTINGS_CHANGED = 39;
+    public const int INTERNET_OPTION_REFRESH = 37;
+}
+'@
 
-    $size = 32
-    $bmp  = New-Object System.Drawing.Bitmap $size, $size
-    $g    = [System.Drawing.Graphics]::FromImage($bmp)
-    $g.SmoothingMode     = 'AntiAlias'
-    $g.InterpolationMode = 'HighQualityBicubic'
-    $g.PixelOffsetMode   = 'HighQuality'
-    $g.Clear([System.Drawing.Color]::Transparent)
+# ---------- Icon 释放 ----------
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class IconNative {
+    [DllImport("user32.dll", SetLastError=true)]
+    public static extern bool DestroyIcon(IntPtr hIcon);
+}
+'@
 
-    $base = Get-BaseIcon
-    $drawn = $false
-    if ($base) {
-        try {
-            $srcBmp = $base.ToBitmap()
-            $rect   = New-Object System.Drawing.Rectangle 0, 0, $size, $size
-            $g.DrawImage($srcBmp, $rect, 0, 0, $srcBmp.Width, $srcBmp.Height, [System.Drawing.GraphicsUnit]::Pixel)
-            $srcBmp.Dispose()
-            $drawn = $true
-        } catch {
-            $drawn = $false
+# ---------- 深色圆角中文菜单渲染器 ----------
+$script:hasDarkRenderer = $false
+try {
+    Add-Type -ReferencedAssemblies @('System.Windows.Forms','System.Drawing') -TypeDefinition @'
+using System;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Windows.Forms;
+
+public class DarkColorTable : ProfessionalColorTable {
+    public override Color MenuBorder                    { get { return Color.FromArgb(58, 58, 64); } }
+    public override Color MenuItemBorder                { get { return Color.Transparent; } }
+    public override Color MenuItemSelected              { get { return Color.Transparent; } }
+    public override Color MenuItemSelectedGradientBegin { get { return Color.Transparent; } }
+    public override Color MenuItemSelectedGradientEnd   { get { return Color.Transparent; } }
+    public override Color ToolStripDropDownBackground   { get { return Color.FromArgb(38, 38, 42); } }
+    public override Color ImageMarginGradientBegin      { get { return Color.FromArgb(38, 38, 42); } }
+    public override Color ImageMarginGradientMiddle     { get { return Color.FromArgb(38, 38, 42); } }
+    public override Color ImageMarginGradientEnd        { get { return Color.FromArgb(38, 38, 42); } }
+    public override Color SeparatorDark                 { get { return Color.FromArgb(58, 58, 64); } }
+    public override Color SeparatorLight                { get { return Color.FromArgb(58, 58, 64); } }
+}
+
+public class DarkMenuRenderer : ToolStripProfessionalRenderer {
+    public Color Bg      = Color.FromArgb(38, 38, 42);
+    public Color Fg      = Color.FromArgb(240, 240, 245);
+    public Color HoverBg = Color.FromArgb(10, 132, 255);
+    public Color HoverFg = Color.White;
+    public Color LineCol = Color.FromArgb(58, 58, 64);
+    public Color EdgeCol = Color.FromArgb(62, 62, 68);
+
+    public DarkMenuRenderer() : base(new DarkColorTable()) {
+        this.RoundedEdges = false;
+    }
+
+    protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e) {
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        using (SolidBrush b = new SolidBrush(Bg)) {
+            e.Graphics.FillRectangle(b, e.AffectedBounds);
         }
     }
 
-    if (-not $drawn) {
-        # 退化为纯色圆点
-        $brush = New-Object System.Drawing.SolidBrush $Color
-        $g.FillEllipse($brush, 2, 2, $size-4, $size-4)
-        $brush.Dispose()
-    } else {
-        # 右下角状态小圆点
-        $dot   = 13
-        $x     = $size - $dot - 1
-        $y     = $size - $dot - 1
-        $pen   = New-Object System.Drawing.Pen ([System.Drawing.Color]::White), 2
-        $brush = New-Object System.Drawing.SolidBrush $Color
-        $g.FillEllipse($brush, $x, $y, $dot, $dot)
-        $g.DrawEllipse($pen, $x, $y, $dot, $dot)
-        $brush.Dispose(); $pen.Dispose()
+    protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e) {
+        using (Pen p = new Pen(EdgeCol, 1)) {
+            int w = e.ToolStrip.Width;
+            int h = e.ToolStrip.Height;
+            e.Graphics.DrawRectangle(p, 0, 0, w - 1, h - 1);
+        }
     }
 
-    $g.Dispose()
+    protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e) {
+        Graphics g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        if (e.Item.Selected && e.Item.Enabled && (e.Item is ToolStripMenuItem)) {
+            Rectangle r = new Rectangle(3, 1, e.Item.Width - 6, e.Item.Height - 2);
+            using (GraphicsPath path = RoundRect(r, 6))
+            using (SolidBrush b = new SolidBrush(HoverBg)) {
+                g.FillPath(b, path);
+            }
+        }
+    }
+
+    protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e) {
+        if (!e.Item.Enabled) {
+            e.TextColor = Color.FromArgb(110, 110, 118);
+        } else if (e.Item.Selected) {
+            e.TextColor = HoverFg;
+        } else {
+            e.TextColor = Fg;
+        }
+        base.OnRenderItemText(e);
+    }
+
+    protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e) {
+        using (Pen p = new Pen(LineCol, 1)) {
+            int y = e.Item.Height / 2;
+            e.Graphics.DrawLine(p, 10, y, e.Item.Width - 10, y);
+        }
+    }
+
+    static GraphicsPath RoundRect(Rectangle r, int radius) {
+        GraphicsPath path = new GraphicsPath();
+        int d = radius * 2;
+        if (d <= 0 || r.Width <= d || r.Height <= d) {
+            path.AddRectangle(r);
+            return path;
+        }
+        path.AddArc(r.X, r.Y, d, d, 180, 90);
+        path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+        path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+        path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+        path.CloseFigure();
+        return path;
+    }
+}
+'@
+    $script:hasDarkRenderer = $true
+    Write-Host "[ProxyTray] 深色菜单渲染器编译成功" -ForegroundColor DarkGray
+} catch {
+    Write-Host "[ProxyTray] 深色菜单渲染器编译失败，已回退：$_" -ForegroundColor Yellow
+}
+
+# ================================================================
+#  代理引擎
+# ================================================================
+$script:ConfigFile     = Join-Path $script:DataDir 'config.json'
+$script:ServedPac      = Join-Path $script:DataDir 'proxy.pac'
+$script:RemotePacCache = Join-Path $script:DataDir 'proxy_remote.pac'
+$script:RegPath        = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
+$script:PacPort        = 0
+$script:PacPs          = $null
+$script:PacRunspace    = $null
+$script:CurrentConfig  = $null
+
+function Update-InternetSettings {
+    [void][WinINet]::InternetSetOption([IntPtr]::Zero, [WinINet]::INTERNET_OPTION_SETTINGS_CHANGED, [IntPtr]::Zero, 0)
+    [void][WinINet]::InternetSetOption([IntPtr]::Zero, [WinINet]::INTERNET_OPTION_REFRESH,          [IntPtr]::Zero, 0)
+}
+
+function Get-DefaultProxyConfig {
+    $domains = @(
+        '*.google.com','*.googleapis.com','*.youtube.com','*.googlevideo.com','*.ytimg.com',
+        '*.github.com','*.githubusercontent.com','*.openai.com','*.chatgpt.com','*.anthropic.com',
+        '*.claude.ai','*.twitter.com','*.x.com','*.facebook.com','*.instagram.com','*.telegram.org',
+        '*.wikipedia.org','*.reddit.com','*.medium.com','*.discord.com','*.notion.so','*.docker.com',
+        '*.npmjs.com','*.stackoverflow.com','*.cloudflare.com','*.amazonaws.com','*.gstatic.com',
+        '*.ggpht.com','*.t.me','*.whatsapp.com','*.signal.org','*.protonmail.com'
+    ) -join "`n"
+
+    [PSCustomObject]@{
+        server       = '192.168.31.126'
+        port         = '41634'
+        override     = 'localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*'
+        mode         = 'global'
+        pacSource    = 'builtin'
+        pacDomains   = $domains
+        localPacPath = ''
+        remotePacUrl = ''
+        autoStart    = $false
+        enabled      = $false
+    }
+}
+
+function Get-ProxyConfig {
+    $cfg = Get-DefaultProxyConfig
+    if (Test-Path $script:ConfigFile) {
+        try {
+            $raw = Get-Content $script:ConfigFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($k in @('server','port','override','mode','pacSource','pacDomains','localPacPath','remotePacUrl','autoStart','enabled')) {
+                if ($raw.PSObject.Properties.Name -contains $k) {
+                    $cfg.PSObject.Properties[$k].Value = $raw.$k
+                }
+            }
+        } catch {
+            Write-Host "[ProxyTray] Config load failed: $_"
+        }
+    }
+    $cfg
+}
+
+function Save-ProxyConfig {
+    param($Config)
+    try {
+        $Config | ConvertTo-Json -Depth 6 | Set-Content -Path $script:ConfigFile -Encoding UTF8
+    } catch {
+        Write-Host "[ProxyTray] Config save failed: $_"
+    }
+}
+
+function Set-GlobalProxy {
+    param([string]$Server, [string]$Port, [string]$Override)
+    $proxy = "$Server`:$Port"
+    if ($Override) {
+        Set-ItemProperty -Path $script:RegPath -Name 'ProxyOverride' -Value $Override -ErrorAction SilentlyContinue
+    }
+    Set-ItemProperty -Path $script:RegPath -Name 'ProxyServer' -Value $proxy
+    Set-ItemProperty -Path $script:RegPath -Name 'ProxyEnable' -Value 1 -Type DWord
+    Remove-ItemProperty -Path $script:RegPath -Name 'AutoConfigURL' -ErrorAction SilentlyContinue
+    Update-InternetSettings
+}
+
+function Set-PacProxy {
+    param([string]$PacContent)
+    $PacContent | Set-Content -Path $script:ServedPac -Encoding ASCII
+    $port = Start-PacServer
+    $url  = "http://127.0.0.1:$port/proxy.pac"
+    Set-ItemProperty -Path $script:RegPath -Name 'AutoConfigURL' -Value $url
+    Set-ItemProperty -Path $script:RegPath -Name 'ProxyEnable'    -Value 0 -Type DWord
+    Remove-ItemProperty -Path $script:RegPath -Name 'ProxyServer' -ErrorAction SilentlyContinue
+    Update-InternetSettings
+    return $url
+}
+
+function Clear-SystemProxy {
+    try {
+        Set-ItemProperty     -Path $script:RegPath -Name 'ProxyEnable'   -Value 0 -Type DWord
+        Remove-ItemProperty  -Path $script:RegPath -Name 'ProxyServer'   -ErrorAction SilentlyContinue
+        Remove-ItemProperty  -Path $script:RegPath -Name 'AutoConfigURL' -ErrorAction SilentlyContinue
+        Update-InternetSettings
+    } catch {
+        Write-Host "[ProxyTray] Clear-SystemProxy failed: $_"
+    }
+}
+
+function Start-PacServer {
+    if ($script:PacPs) { return $script:PacPort }
+
+    $probe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+    $probe.Start()
+    $script:PacPort = ([System.Net.IPEndPoint]$probe.LocalEndpoint).Port
+    $probe.Stop()
+
+    $port    = $script:PacPort
+    $pacPath = $script:ServedPac
+
+    $rs = [runspacefactory]::CreateRunspace()
+    $rs.ApartmentState = 'MTA'
+    $rs.Open()
+    $ps = [powershell]::Create()
+    $ps.Runspace = $rs
+    [void]$ps.AddScript({
+        param($port, $pacPath)
+        try {
+            $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
+            $listener.Start()
+        } catch { return }
+        while ($true) {
+            try {
+                $client = $listener.AcceptTcpClient()
+                try {
+                    $stream = $client.GetStream()
+                    $reader = New-Object System.IO.StreamReader($stream)
+                    while (-not [string]::IsNullOrEmpty($reader.ReadLine())) { }
+                    $body = if (Test-Path $pacPath) { Get-Content $pacPath -Raw } else { 'function FindProxyForURL(url, host) { return "DIRECT"; }' }
+                    $bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+                    $header = "HTTP/1.1 200 OK`r`nContent-Type: application/x-ns-proxy-autoconfig`r`nContent-Length: $($bytes.Length)`r`nConnection: close`r`n`r`n"
+                    $hb = [System.Text.Encoding]::ASCII.GetBytes($header)
+                    $stream.Write($hb, 0, $hb.Length)
+                    $stream.Write($bytes, 0, $bytes.Length)
+                    $stream.Flush()
+                } finally { $client.Close() }
+            } catch { }
+        }
+    }).AddArgument($port).AddArgument($pacPath)
+    $ps.BeginInvoke() | Out-Null
+
+    $script:PacPs = $ps
+    $script:PacRunspace = $rs
+    return $port
+}
+
+function Stop-PacServer {
+    try {
+        if ($script:PacPs) {
+            try { $script:PacPs.Stop() }    catch { }
+            try { $script:PacPs.Dispose() } catch { }
+            $script:PacPs = $null
+        }
+        if ($script:PacRunspace) {
+            try { $script:PacRunspace.Close() }     catch { }
+            try { $script:PacRunspace.Dispose() }   catch { }
+            $script:PacRunspace = $null
+        }
+    } catch { }
+}
+
+function Build-BuiltinPac {
+    param([string]$DomainsText, [string]$ProxyAddr)
+    $lines = New-Object System.Collections.Generic.List[string]
+    foreach ($line in ($DomainsText -split "`r?`n")) {
+        $d = $line.Trim().ToLower()
+        if (-not $d -or $d.StartsWith('#')) { continue }
+        if ($d.StartsWith('*.')) {
+            $base = $d.Substring(2)
+            $lines.Add("  if (host === `"$base`" || dnsDomainIs(host, `".$base`")) return `"$ProxyAddr`";")
+        } elseif ($d.Contains('*')) {
+            $lines.Add("  if (shExpMatch(host, `"$d`")) return `"$ProxyAddr`";")
+        } else {
+            $lines.Add("  if (host === `"$d`" || dnsDomainIs(host, `".$d`")) return `"$ProxyAddr`";")
+        }
+    }
+    $rules = ($lines -join "`n")
+    return @"
+function FindProxyForURL(url, host) {
+  host = host.toLowerCase();
+$rules
+  return "DIRECT";
+}
+"@
+}
+
+function Apply-ProxyConfig {
+    param($Config)
+    if (-not $Config.enabled) {
+        Clear-SystemProxy
+        return @{ ok = $true; msg = '已关闭系统代理' }
+    }
+
+    if ($Config.mode -eq 'global') {
+        try {
+            Set-GlobalProxy -Server $Config.server -Port $Config.port -Override $Config.override
+            return @{ ok = $true; msg = "全局代理已开启 ($($Config.server):$($Config.port))" }
+        } catch {
+            return @{ ok = $false; msg = "设置全局代理失败：$_" }
+        }
+    }
+
+    $pacContent = $null
+    try {
+        switch ($Config.pacSource) {
+            'local' {
+                if ([string]::IsNullOrWhiteSpace($Config.localPacPath)) { return @{ ok = $false; msg = '未指定 PAC 文件' } }
+                if (-not (Test-Path $Config.localPacPath))             { return @{ ok = $false; msg = 'PAC 文件不存在' } }
+                $pacContent = Get-Content $Config.localPacPath -Raw -Encoding UTF8
+            }
+            'remote' {
+                if ([string]::IsNullOrWhiteSpace($Config.remotePacUrl)) { return @{ ok = $false; msg = '未填写 PAC 订阅地址' } }
+                try {
+                    $old = [Net.ServicePointManager]::SecurityProtocol
+                    try {
+                        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+                        $resp = Invoke-WebRequest -Uri $Config.remotePacUrl -UseBasicParsing -TimeoutSec 20
+                    } finally {
+                        [Net.ServicePointManager]::SecurityProtocol = $old
+                    }
+                    $pacContent = $resp.Content
+                    if ($pacContent) { $pacContent | Set-Content -Path $script:RemotePacCache -Encoding UTF8 }
+                } catch {
+                    if (Test-Path $script:RemotePacCache) {
+                        $pacContent = Get-Content $script:RemotePacCache -Raw -Encoding UTF8
+                        Write-Host "[ProxyTray] Remote PAC fetch failed, fallback to cache"
+                    } else { throw }
+                }
+            }
+            default {
+                $proxyAddr  = "PROXY $($Config.server):$($Config.port); DIRECT"
+                $pacContent = Build-BuiltinPac -DomainsText $Config.pacDomains -ProxyAddr $proxyAddr
+            }
+        }
+    } catch {
+        return @{ ok = $false; msg = "获取 PAC 失败：$_" }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($pacContent)) { return @{ ok = $false; msg = 'PAC 内容为空' } }
+
+    try {
+        [void](Set-PacProxy -PacContent $pacContent)
+        return @{ ok = $true; msg = '智能分流已开启' }
+    } catch {
+        return @{ ok = $false; msg = "设置 PAC 失败：$_" }
+    }
+}
+
+function Test-ProxyConn {
+    param([string]$Server, [int]$Port, [int]$TimeoutMs = 900)
+    $client = $null
+    try {
+        $client = New-Object System.Net.Sockets.TcpClient
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $iar = $client.BeginConnect($Server, $Port, $null, $null)
+        $ok  = $iar.AsyncWaitHandle.WaitOne($TimeoutMs, $false)
+        $sw.Stop()
+        if ($ok -and $client.Connected) {
+            try { $client.EndConnect($iar) } catch { }
+            return @{ ok = $true; latency = [int]$sw.ElapsedMilliseconds }
+        }
+        return @{ ok = $false; latency = 0 }
+    } catch {
+        return @{ ok = $false; latency = 0 }
+    } finally {
+        if ($client) { try { $client.Close() } catch { } }
+    }
+}
+
+# ---------- 开机自启：兼容 .ps1 / .exe ----------
+function Set-AutoStart {
+    param([bool]$Enabled)
+    $startupDir = [Environment]::GetFolderPath('Startup')
+    if (-not $startupDir) { return $false }
+    $lnk = Join-Path $startupDir 'NASProxy.lnk'
+    try {
+        if ($Enabled) {
+            $ws = New-Object -ComObject WScript.Shell
+            $sc = $ws.CreateShortcut($lnk)
+            if ($script:appIsExe) {
+                # 打包成 exe：快捷方式直接指向自己
+                $sc.TargetPath       = $script:appSelf
+                $sc.Arguments        = ''
+                $sc.WorkingDirectory = $root
+                $sc.WindowStyle      = 7
+                $sc.IconLocation     = "$($script:appSelf),0"
+            } else {
+                $psExe = Join-Path $PSHOME 'powershell.exe'
+                if (-not (Test-Path -LiteralPath $psExe)) { $psExe = 'powershell.exe' }
+                $sc.TargetPath       = $psExe
+                $sc.Arguments        = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$($script:appSelf)`""
+                $sc.WorkingDirectory = $root
+                $sc.WindowStyle      = 7
+            }
+            $sc.Save()
+        } else {
+            if (Test-Path $lnk) { Remove-Item $lnk -Force -ErrorAction SilentlyContinue }
+        }
+        return $true
+    } catch {
+        Write-Host "[ProxyTray] Set-AutoStart failed: $_"
+        return $false
+    }
+}
+
+function Get-AutoStart {
+    $startupDir = [Environment]::GetFolderPath('Startup')
+    if (-not $startupDir) { return $false }
+    return (Test-Path (Join-Path $startupDir 'NASProxy.lnk'))
+}
+
+function New-BallIcon {
+    param([System.Drawing.Color]$Color)
+    $size = [System.Windows.Forms.SystemInformation]::SmallIconSize.Width
+    if ($size -lt 16) { $size = 16 }
+
+    $bmp = New-Object System.Drawing.Bitmap($size, $size, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $g   = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.SmoothingMode     = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $g.Clear([System.Drawing.Color]::Transparent)
+
+    $pad = [Math]::Max(1, [int]($size * 0.08))
+    $d   = $size - 2 * $pad
+
+    $edge = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(70, 0, 0, 0))
+    $g.FillEllipse($edge, $pad, $pad, $d, $d)
+
+    $main = New-Object System.Drawing.SolidBrush ($Color)
+    $g.FillEllipse($main, $pad + 1, $pad + 1, $d - 2, $d - 2)
+
+    $hw = [int](($d - 2) * 0.50); $hh = [int](($d - 2) * 0.42)
+    $hx = $pad + 1 + [int](($d - 2) * 0.14); $hy = $pad + 1 + [int](($d - 2) * 0.10)
+    $hl = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(130, 255, 255, 255))
+    $g.FillEllipse($hl, $hx, $hy, $hw, $hh)
+
+    $g.Dispose(); $edge.Dispose(); $main.Dispose(); $hl.Dispose()
+
     $hIcon = $bmp.GetHicon()
-    $tmp   = [System.Drawing.Icon]::FromHandle($hIcon)
-    $icon  = New-Object System.Drawing.Icon -ArgumentList $tmp, 32, 32
-    [void][Native.IconApi]::DestroyIcon($hIcon)
+    $icon  = [System.Drawing.Icon]([System.Drawing.Icon]::FromHandle($hIcon).Clone())
+    [void][IconNative]::DestroyIcon($hIcon)
     $bmp.Dispose()
     return $icon
 }
 
-$script:IconOn  = New-StatusIcon ([System.Drawing.Color]::FromArgb(46, 204, 113))
-$script:IconOff = New-StatusIcon ([System.Drawing.Color]::FromArgb(150, 160, 165))
+# ================================================================
+#  屏幕工作区 / 定位
+# ================================================================
+$script:margin      = 12
+$script:wa          = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+$script:lockedWidth = 0
+$script:baseRight   = $null
+$script:baseBottom  = $null
 
-# ============ 设置窗口 ============
-function Show-SettingsDialog {
-    $form = New-Object System.Windows.Forms.Form
-    $form.Text            = $T.Title
-    $form.Size            = New-Object System.Drawing.Size(500, 420)
-    $form.StartPosition   = 'CenterScreen'
-    $form.FormBorderStyle = 'FixedDialog'
-    $form.MaximizeBox     = $false
-    $form.MinimizeBox     = $false
-    $form.Font            = New-Object System.Drawing.Font('Microsoft YaHei UI', 9)
-    $form.BackColor       = [System.Drawing.Color]::White
+$script:initW = 420
+$script:initH = 500
+$script:initLeft = $script:wa.Right  - $script:initW - $script:margin
+$script:initTop  = $script:wa.Bottom - $script:initH - $script:margin
 
-    $lblServer = New-Object System.Windows.Forms.Label
-    $lblServer.Text     = $T.SrvLabel
-    $lblServer.Location = New-Object System.Drawing.Point(20, 25)
-    $lblServer.Size     = New-Object System.Drawing.Size(130, 22)
-    $form.Controls.Add($lblServer)
+$script:cornerRadius  = 24
+$script:dwmCornerType = 2
+$script:useDwmRound   = $false
 
-    $txtServer = New-Object System.Windows.Forms.TextBox
-    $txtServer.Location = New-Object System.Drawing.Point(155, 22)
-    $txtServer.Size     = New-Object System.Drawing.Size(310, 24)
-    $txtServer.Text     = $script:Config.ProxyServer
-    $form.Controls.Add($txtServer)
+# ---------- form ----------
+$form                 = New-Object System.Windows.Forms.Form
+$form.Text            = 'NAS Proxy'
+$form.StartPosition   = 'Manual'
+$form.FormBorderStyle = 'None'
+$form.MaximizeBox     = $false
+$form.MinimizeBox     = $false
+$form.ShowInTaskbar   = $false
+$form.BackColor       = [System.Drawing.Color]::FromArgb(24,24,27)
+$form.Opacity         = 0
 
-    $lblPort = New-Object System.Windows.Forms.Label
-    $lblPort.Text     = $T.PortLabel
-    $lblPort.Location = New-Object System.Drawing.Point(20, 60)
-    $lblPort.Size     = New-Object System.Drawing.Size(130, 22)
-    $form.Controls.Add($lblPort)
+$form.SetBounds($script:initLeft, $script:initTop, $script:initW, $script:initH)
+$script:baseRight  = $script:initLeft + $script:initW
+$script:baseBottom = $script:initTop  + $script:initH
 
-    $txtPort = New-Object System.Windows.Forms.TextBox
-    $txtPort.Location = New-Object System.Drawing.Point(155, 57)
-    $txtPort.Size     = New-Object System.Drawing.Size(120, 24)
-    $txtPort.Text     = $script:Config.ProxyPort
-    $form.Controls.Add($txtPort)
+# ---------- webview ----------
+$webView = New-Object Microsoft.Web.WebView2.WinForms.WebView2
+$webView.CreationProperties = New-Object Microsoft.Web.WebView2.WinForms.CoreWebView2CreationProperties
+$webView.CreationProperties.UserDataFolder = $udd
+$webView.Dock = 'Fill'
+$webView.DefaultBackgroundColor = [System.Drawing.Color]::FromArgb(24,24,27)
+$form.Controls.Add($webView)
 
-    $lblOv = New-Object System.Windows.Forms.Label
-    $lblOv.Text     = $T.OvLabel
-    $lblOv.Location = New-Object System.Drawing.Point(20, 95)
-    $lblOv.Size     = New-Object System.Drawing.Size(450, 22)
-    $form.Controls.Add($lblOv)
+# ---------- 状态标志 ----------
+$script:ready      = $false
+$script:hiding     = $false
+$script:reallyExit = $false
+$script:showTimer  = $null
 
-    $txtOv = New-Object System.Windows.Forms.TextBox
-    $txtOv.Location   = New-Object System.Drawing.Point(20, 122)
-    $txtOv.Size       = New-Object System.Drawing.Size(445, 190)
-    $txtOv.Multiline  = $true
-    $txtOv.ScrollBars = 'Vertical'
-    $txtOv.Text       = $script:Config.ProxyOverride
-    $form.Controls.Add($txtOv)
-
-    $btnReset = New-Object System.Windows.Forms.Button
-    $btnReset.Text     = $T.ResetBtn
-    $btnReset.Location = New-Object System.Drawing.Point(20, 325)
-    $btnReset.Size     = New-Object System.Drawing.Size(95, 32)
-    $btnReset.Add_Click({
-        $d = Get-DefaultConfig
-        $txtServer.Text = $d.ProxyServer
-        $txtPort.Text   = $d.ProxyPort
-        $txtOv.Text     = $d.ProxyOverride
-    })
-    $form.Controls.Add($btnReset)
-
-    $btnOK = New-Object System.Windows.Forms.Button
-    $btnOK.Text         = $T.SaveBtn
-    $btnOK.Location     = New-Object System.Drawing.Point(275, 325)
-    $btnOK.Size         = New-Object System.Drawing.Size(90, 32)
-    $btnOK.DialogResult = 'OK'
-    $btnOK.BackColor    = [System.Drawing.Color]::FromArgb(46, 204, 113)
-    $btnOK.ForeColor    = [System.Drawing.Color]::White
-    $btnOK.FlatStyle    = 'Flat'
-    $form.Controls.Add($btnOK)
-
-    $btnCancel = New-Object System.Windows.Forms.Button
-    $btnCancel.Text         = $T.CancelBtn
-    $btnCancel.Location     = New-Object System.Drawing.Point(375, 325)
-    $btnCancel.Size         = New-Object System.Drawing.Size(90, 32)
-    $btnCancel.DialogResult = 'Cancel'
-    $form.Controls.Add($btnCancel)
-
-    $form.AcceptButton = $btnOK
-    $form.CancelButton = $btnCancel
-
-    while ($true) {
-        $result = $form.ShowDialog()
-        if ($result -ne [System.Windows.Forms.DialogResult]::OK) { return $false }
-
-        $server = $txtServer.Text.Trim()
-        $port   = $txtPort.Text.Trim()
-        $ov     = $txtOv.Text.Trim()
-
-        if ([string]::IsNullOrWhiteSpace($server)) {
-            [System.Windows.Forms.MessageBox]::Show($T.MsgEmptySrv, $T.InfoTitle)
-            continue
-        }
-        $p = 0
-        if (-not [int]::TryParse($port, [ref]$p) -or $p -lt 1 -or $p -gt 65535) {
-            [System.Windows.Forms.MessageBox]::Show($T.MsgBadPort, $T.InfoTitle)
-            continue
-        }
-
-        $script:Config.ProxyServer   = $server
-        $script:Config.ProxyPort     = $port
-        $script:Config.ProxyOverride = $ov
-        Save-Config $script:Config
-        return $true
-    }
-}
-
-# ============ 托盘 ============
-$script:Tray = New-Object System.Windows.Forms.NotifyIcon
-$script:Tray.Visible = $true
-
-function Show-Balloon([string]$Text) {
-    $script:Tray.BalloonTipTitle = $T.BalloonTitle
-    $script:Tray.BalloonTipText  = $Text
-    $script:Tray.BalloonTipIcon  = [System.Windows.Forms.ToolTipIcon]::Info
-    $script:Tray.ShowBalloonTip(1500)
-}
-
-function Update-Tray {
-    if (Get-ProxyState) {
-        $script:Tray.Icon = $script:IconOn
-        $script:Tray.Text = $T.TrayOn
-    } else {
-        $script:Tray.Icon = $script:IconOff
-        $script:Tray.Text = $T.TrayOff
-    }
-}
-
-function Toggle-Proxy {
+# ---------- 圆角工具 ----------
+function Set-FormRoundCorners {
+    param([int]$Radius = $script:cornerRadius)
+    if ($script:useDwmRound) { return }
     try {
-        if (Get-ProxyState) {
-            Disable-Proxy
-            Show-Balloon $T.BalloonOff
-        } else {
-            Enable-Proxy
-            Show-Balloon ($T.BalloonOn + "`n" + "$($script:Config.ProxyServer):$($script:Config.ProxyPort)")
+        $osBuild = [System.Environment]::OSVersion.Version.Build
+        if ($osBuild -ge 22000) {
+            try {
+                $hr = [NativeRound]::SetWindowCornerPreference($form.Handle, $script:dwmCornerType)
+                if ($hr -eq 0) {
+                    $script:useDwmRound = $true
+                    [void][NativeRound]::SetWindowRgn($form.Handle, [IntPtr]::Zero, $true)
+                    return
+                }
+            } catch { }
+        }
+        $w = $form.Width; $h = $form.Height
+        if ($w -lt 10 -or $h -lt 10) { return }
+        $rgn = [NativeRound]::CreateRoundRectRgn(0, 0, $w + 1, $h + 1, $Radius, $Radius)
+        [void][NativeRound]::SetWindowRgn($form.Handle, $rgn, $true)
+    } catch { }
+}
+
+function Reset-ToBottomRight {
+    $w = if ($form.Width  -gt 0) { $form.Width  } else { $script:initW }
+    $h = if ($form.Height -gt 0) { $form.Height } else { $script:initH }
+    $L = $script:wa.Right  - $w - $script:margin
+    $T = $script:wa.Bottom - $h - $script:margin
+    $form.SetBounds($L, $T, $w, $h)
+    $script:baseRight  = $L + $w
+    $script:baseBottom = $T + $h
+    Set-FormRoundCorners
+}
+
+# ---------- 尺寸防抖 Timer ----------
+$script:pendingW = 0
+$script:pendingH = 0
+$script:sizeTimer = New-Object System.Windows.Forms.Timer
+$script:sizeTimer.Interval = 120
+$script:sizeTimer.add_Tick({
+    $script:sizeTimer.Stop()
+    $w = $script:pendingW
+    $h = $script:pendingH
+    $script:pendingW = 0
+    $script:pendingH = 0
+    if ($w -lt 200 -or $h -lt 200) { return }
+    if ($form.IsDisposed) { return }
+
+    if ($script:lockedWidth -eq 0) { $script:lockedWidth = $w }
+    $targetW = $script:lockedWidth
+    $maxH    = $script:wa.Height - 2 * $script:margin
+    $targetH = [Math]::Min($h, $maxH)
+
+    if ($form.Width -eq $targetW -and [Math]::Abs($form.Height - $targetH) -le 8) { return }
+
+    $newLeft = $script:baseRight  - $targetW
+    $newTop  = $script:baseBottom - $targetH
+    if ($newTop  -lt $script:wa.Top)  { $newTop  = $script:wa.Top }
+    if ($newLeft -lt $script:wa.Left) { $newLeft = $script:wa.Left }
+    $form.SetBounds($newLeft, $newTop, $targetW, $targetH)
+    Set-FormRoundCorners
+})
+
+# ---------- Deactivate 延迟隐藏 ----------
+$script:hideTimer = New-Object System.Windows.Forms.Timer
+$script:hideTimer.Interval = 150
+$script:hideTimer.add_Tick({
+    $script:hideTimer.Stop()
+    if (-not $script:ready)   { return }
+    if ($form.IsDisposed)     { return }
+    if (-not $form.Visible)   { return }
+    try {
+        $fg = [System.Windows.Forms.Form]::ActiveForm
+        if ($fg -eq $form) { return }
+    } catch { }
+
+    $script:hiding = $true
+    try { $form.Hide() } catch { }
+    $script:hiding = $false
+})
+
+$form.add_Deactivate({
+    if (-not $script:ready) { return }
+    if ($script:hiding)     { return }
+    if (-not $form.Visible) { return }
+    $script:hideTimer.Stop()
+    $script:hideTimer.Start()
+})
+
+# ================================================================
+#  托盘图标 + 深色中文菜单
+# ================================================================
+$script:iconGray  = New-BallIcon -Color ([System.Drawing.Color]::FromArgb(0x9E, 0x9E, 0x9E))
+$script:iconGreen = New-BallIcon -Color ([System.Drawing.Color]::FromArgb(0x34, 0xC7, 0x59))
+
+$tray         = New-Object System.Windows.Forms.NotifyIcon
+$tray.Icon    = $script:iconGray
+$tray.Text    = 'NAS Proxy · 已关闭'
+$tray.Visible = $true
+
+function Update-TrayIcon {
+    param([bool]$Enabled)
+    try {
+        if ($null -eq $script:iconGreen) { return }
+        $tray.Icon = if ($Enabled) { $script:iconGreen } else { $script:iconGray }
+        $tray.Text = if ($Enabled) { 'NAS Proxy · 已开启' } else { 'NAS Proxy · 已关闭' }
+    } catch { }
+}
+
+$menu = New-Object System.Windows.Forms.ContextMenuStrip
+if ($script:hasDarkRenderer) {
+    try {
+        $rt = 'DarkMenuRenderer' -as [type]
+        if ($rt) { $menu.Renderer = [System.Activator]::CreateInstance($rt) }
+    } catch { }
+}
+$menu.BackColor         = [System.Drawing.Color]::FromArgb(38, 38, 42)
+$menu.ForeColor         = [System.Drawing.Color]::FromArgb(240, 240, 245)
+$menu.ShowImageMargin   = $false
+$menu.Padding           = New-Object System.Windows.Forms.Padding(2, 4, 2, 4)
+$menu.DropShadowEnabled = $true
+try { $menu.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 9) } catch { }
+
+$miShow  = [System.Windows.Forms.ToolStripMenuItem]::new('显示 / 隐藏窗口')
+$miDev   = [System.Windows.Forms.ToolStripMenuItem]::new('打开开发者工具')
+$miSep1  = [System.Windows.Forms.ToolStripSeparator]::new()
+$miClean = [System.Windows.Forms.ToolStripMenuItem]::new('立即清除系统代理')
+$miSize  = [System.Windows.Forms.ToolStripMenuItem]::new('复位窗口位置')
+$miSep2  = [System.Windows.Forms.ToolStripSeparator]::new()
+$miExit  = [System.Windows.Forms.ToolStripMenuItem]::new('退出')
+
+foreach ($it in @($miShow,$miDev,$miClean,$miSize,$miExit)) {
+    $it.Padding = New-Object System.Windows.Forms.Padding(10, 3, 10, 3)
+}
+
+[void]$menu.Items.Add($miShow)
+[void]$menu.Items.Add($miDev)
+[void]$menu.Items.Add($miSep1)
+[void]$menu.Items.Add($miClean)
+[void]$menu.Items.Add($miSize)
+[void]$menu.Items.Add($miSep2)
+[void]$menu.Items.Add($miExit)
+
+$tray.ContextMenuStrip = $menu
+
+$menu.add_Opened({
+    try {
+        $w = $menu.Width; $h = $menu.Height
+        if ($w -lt 10 -or $h -lt 10) { return }
+        $rad = 8
+        $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+        $path.AddArc(0, 0, $rad * 2, $rad * 2, 180, 90)
+        $path.AddArc($w - $rad * 2 - 1, 0, $rad * 2, $rad * 2, 270, 90)
+        $path.AddArc($w - $rad * 2 - 1, $h - $rad * 2 - 1, $rad * 2, $rad * 2, 0, 90)
+        $path.AddArc(0, $h - $rad * 2 - 1, $rad * 2, $rad * 2, 90, 90)
+        $path.CloseFigure()
+        $menu.Region = New-Object System.Drawing.Region($path)
+        $path.Dispose()
+        $menu.Invalidate()
+    } catch { }
+})
+
+function Show-ReadyForm {
+    if ($script:ready) { return }
+    $script:ready = $true
+    try { $script:hideTimer.Stop() } catch { }
+    $form.Opacity = 1
+    try {
+        if (-not $form.Visible) { $form.Show() }
+        $form.BringToFront()
+        $form.Activate()
+    } catch {
+        Write-Host "[ProxyTray] Show-ReadyForm failed: $_"
+    }
+}
+
+function Show-MainWindow {
+    try {
+        if ($form.IsDisposed) { return }
+        try { $script:hideTimer.Stop() } catch { }
+        if (-not $form.Visible) { $form.Show() }
+        $form.BringToFront()
+        $form.Activate()
+    } catch {
+        Write-Host "[ProxyTray] show failed: $_"
+    }
+}
+
+function Hide-MainWindow {
+    try {
+        if ($form.IsDisposed) { return }
+        try { $script:hideTimer.Stop() } catch { }
+        if ($form.Visible) { $form.Hide() }
+    } catch { }
+}
+
+$miShow.add_Click({
+    if ($form.Visible) { Hide-MainWindow } else { Show-MainWindow }
+})
+
+$miDev.add_Click({
+    if ($null -ne $webView.CoreWebView2) { $webView.CoreWebView2.OpenDevToolsWindow() }
+})
+
+$miClean.add_Click({
+    try {
+        Clear-SystemProxy
+        $cfg = Get-ProxyConfig
+        $cfg.enabled = $false
+        Save-ProxyConfig -Config $cfg
+        $script:CurrentConfig = $cfg
+        Update-TrayIcon -Enabled $false
+        if ($null -ne $webView.CoreWebView2) {
+            $payload = @{ action = 'state'; enabled = $false; ok = $true; msg = '系统代理已清除' } | ConvertTo-Json -Compress
+            try { $webView.CoreWebView2.PostWebMessageAsString($payload) } catch { }
         }
     } catch {
-        [System.Windows.Forms.MessageBox]::Show("$($T.MsgFail)`n$($_.Exception.Message)", $T.AppTitle)
+        Write-Host "[ProxyTray] clean failed: $_"
     }
-    Update-Tray
+})
+
+$miSize.add_Click({ $script:lockedWidth = 0; Reset-ToBottomRight })
+
+$miExit.add_Click({
+    $script:reallyExit = $true
+    try { $script:hideTimer.Stop() } catch { }
+    try { $script:sizeTimer.Stop() } catch { }
+    try { Clear-SystemProxy } catch { }
+    try { Stop-PacServer }   catch { }
+    try { $tray.Visible = $false; $tray.Dispose() } catch { }
+    try { $menu.Dispose() } catch { }
+    try { $form.Close() } catch { }
+    try { [System.Windows.Forms.Application]::ExitThread() } catch { }
+})
+
+$tray.add_MouseDoubleClick({
+    try {
+        if ($form.IsDisposed) { return }
+        if ($form.Visible) { Hide-MainWindow } else { Show-MainWindow }
+    } catch {
+        Write-Host "[ProxyTray] tray double-click failed: $_"
+    }
+})
+
+# ================================================================
+#  注入脚本
+# ================================================================
+$injectJs = @'
+(function () {
+    'use strict';
+
+    try {
+        var killer = document.createElement('style');
+        killer.textContent = [
+            '*,*::before,*::after{transition:none !important;animation:none !important;}',
+            '.collapse-panel-inner{transition:opacity 0.18s ease-out, transform 0.18s ease-out !important;}',
+            'html,body{scrollbar-width:none !important;-ms-overflow-style:none !important;}',
+            '::-webkit-scrollbar{display:none !important;width:0 !important;height:0 !important;}',
+            '.pac-panel.active{min-height:116px !important;}',
+            '.toast,.toast-container,.notification,.alert,.message,[class*="toast"],[class*="notification"],[class*="alert"],[class*="message"],[role="alert"]{display:none !important;}'
+        ].join('\n');
+        (document.head || document.documentElement).appendChild(killer);
+    } catch (e) {}
+
+    try {
+        document.documentElement.style.margin  = '0';
+        document.documentElement.style.padding = '0';
+        if (document.body) {
+            document.body.style.overflowX = 'hidden';
+            document.body.style.overflowY = 'auto';
+        }
+    } catch (e) {}
+
+    try {
+        var tb = document.querySelector('.title-bar');
+        if (tb && !tb.__dragBound) {
+            tb.__dragBound = true;
+            tb.style.cursor = 'move';
+            tb.addEventListener('mousedown', function (e) {
+                if (e.button !== 0) return;
+                var t = e.target;
+                if (t && t.closest && t.closest('button, a, input, select, textarea, label, [data-nodrag]')) return;
+                window.chrome.webview.postMessage(JSON.stringify({ action: 'startDrag' }));
+            });
+        }
+    } catch (e) {}
+
+    try {
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') {
+                try { window.chrome.webview.postMessage(JSON.stringify({ action: 'hide' })); } catch (err) {}
+            }
+        });
+    } catch (e) {}
+
+    try {
+        var lastReportedW = -1, lastReportedH = -1;
+        var FREEZE_MS = 500;
+        var frozenUntil = 0;
+        var freezeTimer = null;
+
+        function publish() {
+            if (!document.body) return;
+            if (Date.now() < frozenUntil) return;
+            var r = document.body.getBoundingClientRect();
+            var w = Math.ceil(r.width), h = Math.ceil(r.height);
+            if (w === lastReportedW && h === lastReportedH) return;
+            lastReportedW = w; lastReportedH = h;
+            window.chrome.webview.postMessage(JSON.stringify({ action: 'size', w: w, h: h }));
+        }
+        function onResize() { publish(); }
+
+        document.addEventListener('click', function (e) {
+            var hit = false;
+            try {
+                var t = e.target;
+                if (t && t.closest) {
+                    hit = !!t.closest(
+                        'button, [type=submit], [type=button], [type=reset], [role=button], ' +
+                        '.btn, .button, [id*="save"], [id*="Save"], ' +
+                        '[class*="save"], [class*="Save"], [class*="SaveBtn"], [class*="save-btn"]'
+                    );
+                }
+            } catch (err) { }
+            if (!hit) return;
+
+            frozenUntil = Date.now() + FREEZE_MS;
+            if (freezeTimer) clearTimeout(freezeTimer);
+            freezeTimer = setTimeout(function () {
+                lastReportedW = -1; lastReportedH = -1;
+                publish();
+            }, FREEZE_MS + 30);
+        }, true);
+
+        if (window.ResizeObserver) new ResizeObserver(onResize).observe(document.body);
+        document.addEventListener('DOMContentLoaded', onResize, { once: true });
+        window.addEventListener('load', onResize, { once: true });
+        onResize();
+        setTimeout(publish, 0);
+        setTimeout(publish, 400);
+        setTimeout(publish, 1000);
+    } catch (e) {}
+})();
+'@
+
+# ================================================================
+#  WebView2 初始化 + 消息处理
+# ================================================================
+$webView.add_CoreWebView2InitializationCompleted([System.EventHandler[Microsoft.Web.WebView2.Core.CoreWebView2InitializationCompletedEventArgs]]{
+    param($sender, $evt)
+    try {
+        if (-not $evt.IsSuccess) {
+            Write-Host "[ProxyTray] INIT FAILED:" -ForegroundColor Red
+            Write-Host $evt.InitializationException
+            $form.Opacity = 1; $form.Show()
+            return
+        }
+        $core = $sender.CoreWebView2
+        Write-Host "[ProxyTray] INIT OK, browser = $($core.Environment.BrowserVersionString)" -ForegroundColor Green
+        $core.Settings.AreDefaultContextMenusEnabled = $false
+        $core.Settings.IsStatusBarEnabled            = $false
+
+        $core.add_NavigationCompleted({
+            param($s2, $e2)
+            if (-not $e2.IsSuccess) { Show-ReadyForm; return }
+            $s2.ExecuteScriptAsync($injectJs) | Out-Null
+
+            if ($script:showTimer) {
+                try { $script:showTimer.Stop(); $script:showTimer.Dispose() } catch { }
+                $script:showTimer = $null
+            }
+            $script:showTimer = New-Object System.Windows.Forms.Timer
+            $script:showTimer.Interval = 90
+            $script:showTimer.add_Tick({
+                try { $script:showTimer.Stop(); $script:showTimer.Dispose() } catch { }
+                $script:showTimer = $null
+                Show-ReadyForm
+            })
+            $script:showTimer.Start()
+        })
+
+        $core.add_WebMessageReceived({
+            param($s2, $e2)
+            $raw = $null
+            try { $raw = $e2.TryGetWebMessageAsString() } catch { }
+            if ([string]::IsNullOrWhiteSpace($raw)) { return }
+
+            $obj = $null
+            try { $obj = $raw | ConvertFrom-Json } catch { return }
+
+            switch ($obj.action) {
+                'startDrag' { [NativeDrag]::StartDrag($form.Handle) }
+
+                'hide' { Hide-MainWindow }
+
+                'size' {
+                    $w = [int]$obj.w; $h = [int]$obj.h
+                    if ($w -lt 200 -or $h -lt 200) { return }
+                    $script:pendingW = $w
+                    $script:pendingH = $h
+                    $script:sizeTimer.Stop()
+                    $script:sizeTimer.Start()
+                }
+
+                'theme' {
+                    try {
+                        $dark = [bool]$obj.dark
+                        $c = if ($dark) { [System.Drawing.Color]::FromArgb(28,28,30) }
+                             else       { [System.Drawing.Color]::FromArgb(245,245,247) }
+                        $form.BackColor = $c
+                        $webView.DefaultBackgroundColor = $c
+                    } catch { }
+                }
+
+                'getConfig' {
+                    $cfg = Get-ProxyConfig
+                    $script:CurrentConfig = $cfg
+                    Update-TrayIcon -Enabled ([bool]$cfg.enabled)
+                    $payload = @{ action = 'config'; config = $cfg } | ConvertTo-Json -Depth 6 -Compress
+                    $s2.PostWebMessageAsString($payload)
+                }
+
+                'saveConfig' {
+                    $ui = $obj.config
+                    if ($null -eq $ui) { return }
+                    $cfg = Get-ProxyConfig
+                    foreach ($k in @('server','port','override','mode','pacSource','pacDomains','localPacPath','remotePacUrl')) {
+                        if ($ui.PSObject.Properties.Name -contains $k) {
+                            $cfg.PSObject.Properties[$k].Value = $ui.$k
+                        }
+                    }
+                    if ($ui.PSObject.Properties.Name -contains 'autoStart') {
+                        $want = [bool]$ui.autoStart
+                        if ($want -ne [bool]$cfg.autoStart) {
+                            Set-AutoStart -Enabled $want | Out-Null
+                            $cfg.autoStart = $want
+                        }
+                    }
+                    Save-ProxyConfig -Config $cfg
+                    $script:CurrentConfig = $cfg
+                    Update-TrayIcon -Enabled ([bool]$cfg.enabled)
+
+                    $msgText = '设置已保存'
+                    $ok = $true
+                    if ($cfg.enabled) {
+                        $r = Apply-ProxyConfig -Config $cfg
+                        $msgText = $r.msg; $ok = $r.ok
+                    }
+                    $payload = @{ action = 'saved'; ok = $ok; msg = $msgText; config = $cfg } | ConvertTo-Json -Depth 6 -Compress
+                    $s2.PostWebMessageAsString($payload)
+                }
+
+                'toggleProxy' {
+                    $wantOn = [bool]$obj.enabled
+                    $cfg = Get-ProxyConfig
+                    if ($obj.config) {
+                        foreach ($k in @('server','port','override','mode','pacSource','pacDomains','localPacPath','remotePacUrl','autoStart')) {
+                            if ($obj.config.PSObject.Properties.Name -contains $k) {
+                                $cfg.PSObject.Properties[$k].Value = $obj.config.$k
+                            }
+                        }
+                    }
+                    $cfg.enabled = $wantOn
+                    Save-ProxyConfig -Config $cfg
+                    $script:CurrentConfig = $cfg
+
+                    $r = Apply-ProxyConfig -Config $cfg
+                    Update-TrayIcon -Enabled ([bool]$cfg.enabled)
+
+                    $state = @{
+                        action  = 'state'
+                        enabled = [bool]$cfg.enabled
+                        ok      = [bool]$r.ok
+                        msg     = $r.msg
+                        mode    = $cfg.mode
+                        server  = $cfg.server
+                        port    = $cfg.port
+                    } | ConvertTo-Json -Compress
+                    $s2.PostWebMessageAsString($state)
+                }
+
+                'setAutoStart' {
+                    $want = [bool]$obj.enabled
+                    Set-AutoStart -Enabled $want | Out-Null
+                    $cfg = Get-ProxyConfig
+                    $cfg.autoStart = $want
+                    Save-ProxyConfig -Config $cfg
+                    $script:CurrentConfig = $cfg
+                    $payload = @{ action = 'config'; config = $cfg } | ConvertTo-Json -Depth 6 -Compress
+                    $s2.PostWebMessageAsString($payload)
+                }
+
+                'browseFile' {
+                    $dlg = New-Object System.Windows.Forms.OpenFileDialog
+                    $dlg.Title = '选择 PAC 文件'
+                    $dlg.Filter = 'PAC 文件 (*.pac)|*.pac|所有文件 (*.*)|*.*'
+                    $dlg.CheckFileExists = $true
+                    $path = ''
+                    if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+                        $path = $dlg.FileName
+                    }
+                    $payload = @{ action = 'filePicked'; path = $path } | ConvertTo-Json -Compress
+                    $s2.PostWebMessageAsString($payload)
+                }
+
+                'testConnection' {
+                    $server  = [string]$obj.server
+                    $portStr = [string]$obj.port
+                    $port    = 0
+                    [void][int]::TryParse($portStr, [ref]$port)
+                    if ($server -and $port -gt 0) {
+                        $r = Test-ProxyConn -Server $server -Port $port
+                        $payload = @{ action = 'connResult'; ok = $r.ok; latency = $r.latency } | ConvertTo-Json -Compress
+                    } else {
+                        $payload = @{ action = 'connResult'; ok = $false; latency = 0 } | ConvertTo-Json -Compress
+                    }
+                    $s2.PostWebMessageAsString($payload)
+                }
+
+                'resetConfig' {
+                    $cfg = Get-DefaultProxyConfig
+                    Save-ProxyConfig -Config $cfg
+                    $script:CurrentConfig = $cfg
+                    try { Set-AutoStart -Enabled $false | Out-Null } catch { }
+                    try { Clear-SystemProxy } catch { }
+                    Update-TrayIcon -Enabled $false
+                    $payload = @{ action = 'config'; config = $cfg } | ConvertTo-Json -Depth 6 -Compress
+                    $s2.PostWebMessageAsString($payload)
+                }
+            }
+        })
+    } catch {
+        Write-Host "[ProxyTray] EXCEPTION in init: $_" -ForegroundColor Red
+        Write-Host $_.ScriptStackTrace -ForegroundColor DarkRed
+    }
+})
+
+# ================================================================
+#  Form Shown / Closing / Closed
+# ================================================================
+$form.add_Shown({
+    Write-Host "[ProxyTray] Shown fired" -ForegroundColor Cyan
+    try { $script:hideTimer.Stop() } catch { }
+
+    try { Set-FormRoundCorners } catch { Write-Host "[ProxyTray] roundcorners failed: $_" }
+
+    try {
+        $cfg = Get-ProxyConfig
+        $script:CurrentConfig = $cfg
+
+        $wantAuto = [bool]$cfg.autoStart
+        $haveAuto = Get-AutoStart
+        if ($wantAuto -ne $haveAuto) { Set-AutoStart -Enabled $wantAuto | Out-Null }
+
+        if ($cfg.enabled) {
+            $r = Apply-ProxyConfig -Config $cfg
+            Write-Host "[ProxyTray] Auto-apply: $($r.msg)" -ForegroundColor Cyan
+        }
+
+        Update-TrayIcon -Enabled ([bool]$cfg.enabled)
+    } catch {
+        Write-Host "[ProxyTray] Auto-apply failed: $_"
+    }
+
+    if (-not (Test-Path -LiteralPath $html)) {
+        Write-Host "[ProxyTray] UI 文件不存在：$html" -ForegroundColor Red
+        [System.Windows.Forms.MessageBox]::Show(
+            ("找不到界面文件：`n$html`n`n请确认 ui\index.html 与程序在同一文件夹下。"),
+            'NAS Proxy · 界面缺失', 'OK', 'Error') | Out-Null
+        return
+    }
+    $webView.Source = [Uri]('file:///' + ($html -replace '\\','/'))
+})
+
+$form.add_FormClosing({
+    param($sender, $evt)
+    Write-Host ("[ProxyTray] FormClosing CloseReason={0} reallyExit={1}" -f $evt.CloseReason, $script:reallyExit) -ForegroundColor Yellow
+    if (-not $script:reallyExit) {
+        $evt.Cancel = $true
+        Hide-MainWindow
+    }
+})
+
+$form.add_FormClosed({
+    param($sender, $evt)
+    Write-Host "[ProxyTray] ** FormClosed **" -ForegroundColor Red
+})
+
+# ================================================================
+#  主消息循环
+# ================================================================
+Write-Host "[ProxyTray] ready. window @ ($($form.Left),$($form.Top)) size $($form.Width)x$($form.Height)"
+
+$script:appContext          = New-Object System.Windows.Forms.ApplicationContext
+$script:appContext.MainForm = $form
+
+try {
+    $form.Show()
+} catch {
+    Write-Host "[ProxyTray] form.Show() EXCEPTION:" -ForegroundColor Red
+    Write-Host $_
+    Write-Host $_.ScriptStackTrace -ForegroundColor DarkRed
 }
 
-# ============ 菜单 ============
-$menu   = New-Object System.Windows.Forms.ContextMenuStrip
-$miOn   = $menu.Items.Add($T.OpenProxy)
-$miOff  = $menu.Items.Add($T.CloseProxy)
-[void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
-$miSet  = $menu.Items.Add($T.Settings)
-$miSys  = $menu.Items.Add($T.WinProxySet)
-[void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
-$miQuit = $menu.Items.Add($T.Quit)
+try {
+    [System.Windows.Forms.Application]::Run($script:appContext)
+} catch {
+    Write-Host "[ProxyTray] Application.Run EXCEPTION:" -ForegroundColor Red
+    Write-Host $_
+    Write-Host $_.ScriptStackTrace -ForegroundColor DarkRed
+}
 
-$script:Tray.ContextMenuStrip = $menu
+Write-Host "[ProxyTray] bye."
 
-$miOn.Add_Click({
-    try { Enable-Proxy; Show-Balloon ($T.BalloonOn + "`n" + "$($script:Config.ProxyServer):$($script:Config.ProxyPort)") } catch { }
-    Update-Tray
-})
-
-$miOff.Add_Click({
-    try { Disable-Proxy; Show-Balloon $T.BalloonOff } catch { }
-    Update-Tray
-})
-
-$miSet.Add_Click({
-    if (Show-SettingsDialog) {
-        if (Get-ProxyState) {
-            try { Enable-Proxy } catch { }
-            Show-Balloon $T.BalloonApplied
-        } else {
-            Show-Balloon $T.BalloonSaved
-        }
-        Update-Tray
-    }
-})
-
-$miSys.Add_Click({ Start-Process 'ms-settings:network-proxy' })
-
-$script:Tray.Add_DoubleClick({ Toggle-Proxy })
-
-$script:Ctx = New-Object System.Windows.Forms.ApplicationContext
-
-$miQuit.Add_Click({
-    $script:Tray.Visible = $false
-    $script:Tray.Dispose()
-    try { $script:Mutex.ReleaseMutex() } catch { }
-    $script:Ctx.ExitThread()
-})
-
-# ============ 启动 ============
-Update-Tray
-[System.Windows.Forms.Application]::Run($script:Ctx)
+# ---------- 兜底清理 ----------
+try { Stop-PacServer } catch { }
+try { if ($script:showTimer) { $script:showTimer.Dispose() } } catch { }
+try { if ($script:sizeTimer) { $script:sizeTimer.Dispose() } } catch { }
+try { $script:hideTimer.Dispose() } catch { }
+try { $tray.Visible = $false; $tray.Dispose() } catch { }
+try { $menu.Dispose() } catch { }
+try { if ($script:mutex) { if ($script:hasMutex) { $script:mutex.ReleaseMutex() }; $script:mutex.Dispose() } } catch { }
+[System.Environment]::Exit(0)
