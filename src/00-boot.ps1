@@ -124,8 +124,86 @@ try {
     }
 }
 
-$lib  = Join-Path $root 'lib'
-$html = Join-Path $root 'ui\index.html'
+# ---------------------------------------------------------------
+# 版本号：VERSION 文件是唯一来源。
+# 单文件 exe 里没有 VERSION 文件，build.ps1 会把下面这行常量改写成 VERSION 的内容。
+# ---------------------------------------------------------------
+$script:AppVersionBuiltin = '1.2.0'
+$script:AppVersion = $script:AppVersionBuiltin
+try {
+    $verFile = Join-Path $root 'VERSION'
+    if (Test-Path -LiteralPath $verFile) {
+        $verText = (Get-Content -LiteralPath $verFile -Raw -Encoding UTF8).Trim()
+        if ($verText) { $script:AppVersion = $verText }
+    }
+} catch { }
+
+# ---------------------------------------------------------------
+# 内容目录：源码直跑时直接用仓库里的 lib\ 与 ui\；
+# 单文件 exe 时把内嵌资源释放到 <数据目录>\runtime\<版本>\，写 .ok 标记后复用。
+# 先释放到临时目录再整体改名，避免中途失败留下半个残缺目录。
+# ---------------------------------------------------------------
+$script:RuntimeDir  = $root
+$script:UsingPacked = $false
+
+$packed = $null
+if (Test-Path variable:script:PackedResources) { $packed = $script:PackedResources }
+
+if ($packed -and -not (Test-Path -LiteralPath (Join-Path $root 'lib'))) {
+    $script:UsingPacked = $true
+    $rtBase  = Join-Path $script:DataDir 'runtime'
+    $rtFinal = Join-Path $rtBase $script:AppVersion
+
+    if (Test-Path -LiteralPath (Join-Path $rtFinal '.ok')) {
+        $script:RuntimeDir = $rtFinal
+    } else {
+        $rtTmp = Join-Path $rtBase ('.tmp-' + [Guid]::NewGuid().ToString('N'))
+        try {
+            Add-Type -AssemblyName System.IO.Compression | Out-Null
+            Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
+            if (-not (Test-Path -LiteralPath $rtBase)) {
+                New-Item -ItemType Directory -Force -Path $rtBase | Out-Null
+            }
+            if (Test-Path -LiteralPath $rtTmp) { Remove-Item -LiteralPath $rtTmp -Recurse -Force }
+            New-Item -ItemType Directory -Force -Path $rtTmp | Out-Null
+
+            $ms  = [System.IO.MemoryStream]::new([Convert]::FromBase64String($packed))
+            $zip = [System.IO.Compression.ZipArchive]::new(
+                       $ms, [System.IO.Compression.ZipArchiveMode]::Read, $true)
+
+            # 逐条写字节，不走 Expand-Archive：避免给 DLL 打上「来自 Internet」的标记
+            foreach ($entry in $zip.Entries) {
+                if ([string]::IsNullOrEmpty($entry.Name)) { continue }
+                $dst = Join-Path $rtTmp ($entry.FullName -replace '/', '\')
+                $dstDir = Split-Path -Parent $dst
+                if (-not (Test-Path -LiteralPath $dstDir)) {
+                    New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
+                }
+                $es = $entry.Open()
+                $os = [System.IO.File]::Create($dst)
+                try { $es.CopyTo($os) } finally { $os.Dispose(); $es.Dispose() }
+            }
+            $zip.Dispose()
+            $ms.Dispose()
+
+            Set-Content -LiteralPath (Join-Path $rtTmp '.ok') -Value $script:AppVersion -Encoding ASCII
+            if (Test-Path -LiteralPath $rtFinal) { Remove-Item -LiteralPath $rtFinal -Recurse -Force }
+            Move-Item -LiteralPath $rtTmp -Destination $rtFinal
+            $script:RuntimeDir = $rtFinal
+        } catch {
+            if (Test-Path -LiteralPath $rtTmp) {
+                Remove-Item -LiteralPath $rtTmp -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            $script:RuntimeDir = $root
+        }
+    }
+}
+
+
+# 内容目录一律以 $script:RuntimeDir 为准：源码直跑时它就是根目录，
+# 单文件 exe 时是释放出来的 runtime\<版本>\，两者对下游完全一致。
+$lib  = Join-Path $script:RuntimeDir 'lib'
+$html = Join-Path $script:RuntimeDir 'ui\index.html'
 $udd  = Join-Path $script:DataDir '.webview2'
 
 # ---------------------------------------------------------------
@@ -142,6 +220,11 @@ try {
     }
 } catch { }
 
+# 有没有真实控制台？-noConsole 打包出来的 exe 没有。
+# 此时一律不再把日志转发给宿主：没人看得到，反而会拖慢启动。
+$script:HasConsole = $false
+try { $null = [Console]::WindowWidth; $script:HasConsole = $true } catch { }
+
 function Write-Host {
     param(
         [Parameter(Position = 0, ValueFromPipeline = $true)]
@@ -156,6 +239,7 @@ function Write-Host {
                     -Value ("[{0}] {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff'), $text)
             } catch { }
         }
+        if (-not $script:HasConsole) { return }
         if ($ForegroundColor) {
             Microsoft.PowerShell.Utility\Write-Host $text -ForegroundColor $ForegroundColor
         } else {
@@ -174,20 +258,9 @@ $script:DryRun = ($env:PROXYTRAY_DRYRUN -eq '1')
 Write-Host ("[ProxyTray] mode={0} self={1}" -f $(if ($script:appIsExe) { 'EXE' } else { 'PS1' }), $script:appSelf)
 Write-Host ("[ProxyTray] root={0}  data={1}" -f $root, $script:DataDir)
 Write-Host ("[ProxyTray] apartment={0}" -f [System.Threading.Thread]::CurrentThread.GetApartmentState())
+Write-Host ("[ProxyTray] version={0}  packed={1}  console={2}" -f $script:AppVersion, $script:UsingPacked, $script:HasConsole)
+Write-Host ("[ProxyTray] content={0}" -f $script:RuntimeDir)
 
-# ---------------------------------------------------------------
-# 版本号：VERSION 文件是唯一来源；打包时 build.ps1 会把下面这行常量改写成 VERSION 的内容
-# ---------------------------------------------------------------
-$script:AppVersionBuiltin = '1.2.0'
-$script:AppVersion = $script:AppVersionBuiltin
-try {
-    $verFile = Join-Path $root 'VERSION'
-    if (Test-Path -LiteralPath $verFile) {
-        $verText = (Get-Content -LiteralPath $verFile -Raw -Encoding UTF8).Trim()
-        if ($verText) { $script:AppVersion = $verText }
-    }
-} catch { }
-Write-Host ("[ProxyTray] version={0}" -f $script:AppVersion)
 
 # ---------- 视觉样式：必须在创建任何控件之前调用 ----------
 try {
