@@ -635,6 +635,7 @@ let dirty = false;
 let connTestTimer = null;
 let saveTimer = null;         // 自动保存防抖
 let saveInFlight = false;     // 已发出 saveConfig、等待后端回执
+let saveWatchdog = null;      // 回执丢失看门狗
 let lastSavedAt = '';         // 最近一次保存成功的时间
 let isConnected = !!(window.chrome && window.chrome.webview);
 
@@ -792,12 +793,26 @@ function flushSave() {
     if (!v.ok) { setAutosaveBar('err', v.error + '，未保存'); return; }
 
     saveInFlight = true;
+    // 关键：发出即视为已提交，立刻清掉 dirty。
+    // 否则 saved 回执到达时 dirty 仍为 true，会被当成「期间又有改动」再补一次
+    // 保存 → 回执 → 再补 → 无限循环（v1.2.5 卡在「保存中…」就是这个原因）。
+    dirty = false;
     setAutosaveBar('pending', '保存中…');
     const sent = postPS('saveConfig', { config: collectConfig(), quiet: true });
     if (!sent) {
         saveInFlight = false;
+        dirty = true;   // 没发出去，保留待保存状态
         setAutosaveBar('err', '保存失败：未连接后端');
+        return;
     }
+    // 看门狗：回执若丢失，5 秒后解除占位，允许下一次保存
+    clearTimeout(saveWatchdog);
+    saveWatchdog = setTimeout(() => {
+        if (saveInFlight) {
+            saveInFlight = false;
+            setAutosaveBar('err', '保存超时，请重试修改');
+        }
+    }, 5000);
 }
 
 function scheduleSave(delay) {
@@ -938,10 +953,11 @@ function handlePSMessage(e) {
             break;
 
         case 'saved':
+            clearTimeout(saveWatchdog);
+            saveWatchdog = null;
             saveInFlight = false;
             if (msg.ok === false) {
                 // 配置本身已落盘，失败的是「应用」这一步（比如代理不可达）
-                clearDirty();
                 setAutosaveBar('err', msg.msg || '应用失败');
                 break;
             }

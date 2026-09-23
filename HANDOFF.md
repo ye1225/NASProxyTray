@@ -1,7 +1,7 @@
 ﻿# NASProxyTray · 交接文档
 
 > 交接给下一个接手的人（或 AI）。
-> **当前状态：v1.2.5 已发布（取消保存按钮，改为自动保存）。**
+> **当前状态：v1.2.6 已发布（修复自动保存无限循环）。**
 
 ---
 
@@ -14,7 +14,7 @@ Windows 托盘工具，一键切换系统代理指向 NAS，支持全局代理�
 | --- | --- |
 | 仓库 | https://github.com/ye1225/NASProxyTray |
 | 本地路径 | `D:\Desktop\NASProxyTray` |
-| 当前版本 | **v1.2.5**（唯一版本源：仓库根目录 `VERSION` 文件） |
+| 当前版本 | **v1.2.6**（唯一版本源：仓库根目录 `VERSION` 文件） |
 | 主分支 | `main` |
 | 运行环境 | Windows 10 1809+ / Windows 11 + WebView2 Runtime |
 | 发布形态 | **单个 `NASProxyTray.exe`**（v1.2.0 起，不必再带 `lib\` 和 `ui\`） |
@@ -305,9 +305,12 @@ Form 生命周期、`Application.Run`、退出清理（含更新检查的 Timer 
 ### 自动保存（v1.2.5 起，界面不再有「保存设置」按钮）
 
 - 任何改动走 600 ms 防抖，到点自动发 `saveConfig`；窗口失焦 / 隐藏 / 卸载前立即补发
-- **顺序敏感**：`saved` 回执只在 `dirty === false` 时才 `applyConfig()` 回写表单，
-  否则会把用户正在输入的值覆盖掉；若回执到达时 `dirty` 仍为 true，说明期间又改了，
-  立即再 `flushSave()` 一次
+- **生死攸关的不变量（v1.2.6 修复的无限循环）**：`flushSave()` 发出请求的瞬间必须
+  `dirty = false`。否则 `saved` 回执到达时 `dirty` 仍为 true，会被当成「期间又有改动」
+  再次 `flushSave()` → 回执 → 再补 → 无限循环（v1.2.5 界面永远卡在「保存中…」、
+  后端每秒被灌几十次 saveConfig 就是这个原因）。
+  「保存期间用户又改了」的检测靠的是发出后、回执前 `markDirty()` 重新置位 dirty。
+- 另有 5 秒看门狗：回执丢失则解除 `saveInFlight` 占位，避免此后永远无法保存
 - **校验在前**：`validateConfig()` 不过（地址空 / 端口越界 / 智能分流缺 PAC 文件）
   就**不发请求**，配置文件保留上次有效值，底部状态条转红
 - 相关元素：`#autosaveBar`（三态 `.pending / .ok / .err`）、`#autosaveText`；
