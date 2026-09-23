@@ -119,6 +119,18 @@ $webView.add_CoreWebView2InitializationCompleted([System.EventHandler[Microsoft.
         $core.Settings.AreDefaultContextMenusEnabled = $false
         $core.Settings.IsStatusBarEnabled            = $false
 
+        # 界面里的外链（GitHub 等）交给系统默认浏览器打开，
+        # 否则 WebView2 会把配置界面自身导航到外站，回不来
+        $core.add_NewWindowRequested({
+            param($s3, $e3)
+            try {
+                $e3.Handled = $true
+                Start-Process $e3.Uri
+            } catch {
+                Write-Host "[ProxyTray] 打开外部链接失败: $_"
+            }
+        })
+
         $core.add_NavigationCompleted({
             param($s2, $e2)
             if (-not $e2.IsSuccess) { Show-ReadyForm; return }
@@ -175,7 +187,7 @@ $webView.add_CoreWebView2InitializationCompleted([System.EventHandler[Microsoft.
                     $cfg = Get-ProxyConfig
                     $script:CurrentConfig = $cfg
                     Update-TrayIcon -Enabled ([bool]$cfg.enabled)
-                    $payload = @{ action = 'config'; config = $cfg } | ConvertTo-Json -Depth 6 -Compress
+                    $payload = @{ action = 'config'; config = $cfg; version = $script:AppVersion } | ConvertTo-Json -Depth 6 -Compress
                     $s2.PostWebMessageAsString($payload)
                 }
 
@@ -245,7 +257,7 @@ $webView.add_CoreWebView2InitializationCompleted([System.EventHandler[Microsoft.
                     $cfg.autoStart = $want
                     Save-ProxyConfig -Config $cfg
                     $script:CurrentConfig = $cfg
-                    $payload = @{ action = 'config'; config = $cfg } | ConvertTo-Json -Depth 6 -Compress
+                    $payload = @{ action = 'config'; config = $cfg; version = $script:AppVersion } | ConvertTo-Json -Depth 6 -Compress
                     $s2.PostWebMessageAsString($payload)
                 }
 
@@ -283,7 +295,7 @@ $webView.add_CoreWebView2InitializationCompleted([System.EventHandler[Microsoft.
                     try { Set-AutoStart -Enabled $false | Out-Null } catch { }
                     try { Clear-SystemProxy } catch { }
                     Update-TrayIcon -Enabled $false
-                    $payload = @{ action = 'config'; config = $cfg } | ConvertTo-Json -Depth 6 -Compress
+                    $payload = @{ action = 'config'; config = $cfg; version = $script:AppVersion } | ConvertTo-Json -Depth 6 -Compress
                     $s2.PostWebMessageAsString($payload)
                 }
             }

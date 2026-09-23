@@ -39,15 +39,29 @@ function Clear-SystemProxy {
     }
 }
 
+# ---------- 本地 PAC 服务 ----------
+# 监听器在主线程创建并持有引用，Stop-PacServer 直接关掉它，
+# 阻塞中的 AcceptTcpClient 会立刻抛错退出 —— 旧实现在抛出后仍不停循环，会空转占满一核。
 function Start-PacServer {
     if ($script:PacPs) { return $script:PacPort }
 
-    $probe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-    $probe.Start()
-    $script:PacPort = ([System.Net.IPEndPoint]$probe.LocalEndpoint).Port
-    $probe.Stop()
+    $listener = $null
+    for ($attempt = 0; $attempt -lt 20 -and -not $listener; $attempt++) {
+        $probe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+        $probe.Start()
+        $port = ([System.Net.IPEndPoint]$probe.LocalEndpoint).Port
+        $probe.Stop()
+        try {
+            $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
+            $listener.Start()
+            $script:PacPort = $port
+        } catch {
+            $listener = $null
+        }
+    }
+    if (-not $listener) { throw 'PAC 服务无法绑定本地端口' }
+    $script:PacListener = $listener
 
-    $port    = $script:PacPort
     $pacPath = $script:ServedPac
 
     $rs = [runspacefactory]::CreateRunspace()
@@ -56,38 +70,41 @@ function Start-PacServer {
     $ps = [powershell]::Create()
     $ps.Runspace = $rs
     [void]$ps.AddScript({
-        param($port, $pacPath)
-        try {
-            $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
-            $listener.Start()
-        } catch { return }
+        param($listener, $pacPath)
         while ($true) {
             try {
                 $client = $listener.AcceptTcpClient()
-                try {
-                    $stream = $client.GetStream()
-                    $reader = New-Object System.IO.StreamReader($stream)
-                    while (-not [string]::IsNullOrEmpty($reader.ReadLine())) { }
-                    $body = if (Test-Path $pacPath) { Get-Content $pacPath -Raw } else { 'function FindProxyForURL(url, host) { return "DIRECT"; }' }
-                    $bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
-                    $header = "HTTP/1.1 200 OK`r`nContent-Type: application/x-ns-proxy-autoconfig`r`nContent-Length: $($bytes.Length)`r`nConnection: close`r`n`r`n"
-                    $hb = [System.Text.Encoding]::ASCII.GetBytes($header)
-                    $stream.Write($hb, 0, $hb.Length)
-                    $stream.Write($bytes, 0, $bytes.Length)
-                    $stream.Flush()
-                } finally { $client.Close() }
-            } catch { }
+            } catch {
+                break          # 监听器已被关闭 → 服务线程优雅退出
+            }
+            try {
+                $stream = $client.GetStream()
+                $reader = New-Object System.IO.StreamReader($stream)
+                while (-not [string]::IsNullOrEmpty($reader.ReadLine())) { }
+                $body = if (Test-Path $pacPath) { Get-Content $pacPath -Raw } else { 'function FindProxyForURL(url, host) { return "DIRECT"; }' }
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+                $header = "HTTP/1.1 200 OK`r`nContent-Type: application/x-ns-proxy-autoconfig`r`nContent-Length: $($bytes.Length)`r`nConnection: close`r`n`r`n"
+                $hb = [System.Text.Encoding]::ASCII.GetBytes($header)
+                $stream.Write($hb, 0, $hb.Length)
+                $stream.Write($bytes, 0, $bytes.Length)
+                $stream.Flush()
+            } catch { } finally { $client.Close() }
         }
-    }).AddArgument($port).AddArgument($pacPath)
+    }).AddArgument($listener).AddArgument($pacPath)
     $ps.BeginInvoke() | Out-Null
 
     $script:PacPs = $ps
     $script:PacRunspace = $rs
-    return $port
+    return $script:PacPort
 }
 
 function Stop-PacServer {
     try {
+        # 先关监听器唤醒阻塞的 Accept，服务线程随即自行结束
+        if ($script:PacListener) {
+            try { $script:PacListener.Stop() } catch { }
+            $script:PacListener = $null
+        }
         if ($script:PacPs) {
             try { $script:PacPs.Stop() }    catch { }
             try { $script:PacPs.Dispose() } catch { }
@@ -100,6 +117,7 @@ function Stop-PacServer {
         }
     } catch { }
 }
+
 
 function Build-BuiltinPac {
     param([string]$DomainsText, [string]$ProxyAddr)

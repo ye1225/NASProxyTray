@@ -175,3 +175,26 @@ Write-Host ("[ProxyTray] mode={0} self={1}" -f $(if ($script:appIsExe) { 'EXE' }
 Write-Host ("[ProxyTray] root={0}  data={1}" -f $root, $script:DataDir)
 Write-Host ("[ProxyTray] apartment={0}" -f [System.Threading.Thread]::CurrentThread.GetApartmentState())
 
+# ---------------------------------------------------------------
+# 版本号：VERSION 文件是唯一来源；打包时 build.ps1 会把下面这行常量改写成 VERSION 的内容
+# ---------------------------------------------------------------
+$script:AppVersionBuiltin = '1.2.0'
+$script:AppVersion = $script:AppVersionBuiltin
+try {
+    $verFile = Join-Path $root 'VERSION'
+    if (Test-Path -LiteralPath $verFile) {
+        $verText = (Get-Content -LiteralPath $verFile -Raw -Encoding UTF8).Trim()
+        if ($verText) { $script:AppVersion = $verText }
+    }
+} catch { }
+Write-Host ("[ProxyTray] version={0}" -f $script:AppVersion)
+
+# ---------- 视觉样式：必须在创建任何控件之前调用 ----------
+try {
+    Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+    [System.Windows.Forms.Application]::EnableVisualStyles()
+} catch {
+    Write-Host "[ProxyTray] EnableVisualStyles failed: $_" -ForegroundColor Yellow
+}
+
+

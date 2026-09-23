@@ -595,7 +595,7 @@ textarea {
     </div>
 
     <div class="footer">
-        <span>v1.0.0</span>
+        <span id="appVersion">v1.0.0</span>
         <button class="center" id="resetBtn">恢复默认</button>
         <a href="https://github.com/ye1225/NASProxyTray" target="_blank">GitHub</a>
     </div>
@@ -807,6 +807,10 @@ function handlePSMessage(e) {
 
     switch (msg.action) {
         case 'config':
+            if (msg.version) {
+                var fv = document.getElementById('appVersion');
+                if (fv) fv.textContent = 'v' + msg.version;
+            }
             applyConfig(msg.config);
             scheduleConnTest();
             break;

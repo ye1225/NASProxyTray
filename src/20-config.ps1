@@ -9,6 +9,7 @@ $script:RemotePacCache = Join-Path $script:DataDir 'proxy_remote.pac'
 $script:RegPath        = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
 $script:PacPort        = 0
 $script:PacPs          = $null
+$script:PacListener    = $null
 $script:PacRunspace    = $null
 $script:CurrentConfig  = $null
 
