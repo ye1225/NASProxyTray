@@ -46,7 +46,7 @@
 
 ### 方式一：下载免安装版（推荐）
 
-1. 到 [Releases](../../releases/latest) 下载 `NASProxyTray-v1.2.3.zip`
+1. 到 [Releases](../../releases/latest) 下载 `NASProxyTray-v1.2.4.zip`
 2. 解压到任意目录（**不要放在需要管理员权限的目录**，比如 `C:\Program Files`）
 3. 双击 `NASProxyTray.exe`
 4. 托盘出现图标 → 左键双击 = 打开界面

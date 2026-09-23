@@ -1,7 +1,7 @@
 ﻿# NASProxyTray · 交接文档
 
 > 交接给下一个接手的人（或 AI）。
-> **当前状态：v1.2.3 已发布，四个目标全部落地并通过验证。**
+> **当前状态：v1.2.4 已发布（开启态对勾图标放大到与电源图标一致）。**
 
 ---
 
@@ -14,7 +14,7 @@ Windows 托盘工具，一键切换系统代理指向 NAS，支持全局代理�
 | --- | --- |
 | 仓库 | https://github.com/ye1225/NASProxyTray |
 | 本地路径 | `D:\Desktop\NASProxyTray` |
-| 当前版本 | **v1.2.3**（唯一版本源：仓库根目录 `VERSION` 文件） |
+| 当前版本 | **v1.2.4**（唯一版本源：仓库根目录 `VERSION` 文件） |
 | 主分支 | `main` |
 | 运行环境 | Windows 10 1809+ / Windows 11 + WebView2 Runtime |
 | 发布形态 | **单个 `NASProxyTray.exe`**（v1.2.0 起，不必再带 `lib\` 和 `ui\`） |
