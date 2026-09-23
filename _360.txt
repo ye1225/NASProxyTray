@@ -1,0 +1,37 @@
+﻿Downloads 注册值 = D:\Downloads
+Desktop  注册值 = D:\Desktop
+--- 实际路径存在性 ---
+  C:\Users\YE\Downloads = False
+  D:\Desktop\proxy = True
+  D:\Desktop\proxy\NASProxyTray.exe = True
+--- D:\Desktop\proxy 内容 ---
+  .git  <dir>
+  .gitignore  113
+  app.ico  5896
+  build.ps1  1503
+  LICENSE  1067
+  NASProxyTray.exe  62976
+  ProxyTray.ps1  23293
+  README.md  738
+--- D:\Desktop 一级（含 NASProxy/新建 关键字）---
+  NASProxyTray  <dir>
+  proxy  <dir>
+  NASProxyTray.exe  62976
+  NASProxyTray.exe.lnk  1050
+  ~$新建 XLSX 工作表.xlsx  165
+  新建 DOCX 文档 (2).docx  0
+  新建 DOCX 文档 (3).docx  45785
+  新建 DOCX 文档.docx  13683
+  新建 文本文档.txt  1174
+  新建文本文档 (2).txt  259
+  新建文本文档 (4).txt  8960
+  新建文本文档.json  33705
+  新建文本文档.txt  0
+--- 全盘找 v1.2.x 大小的 exe（4 处常见位置）---
+  D:\Desktop\NASProxyTray.exe  62976  09/18/2026 16:51:53
+  D:\Desktop\NASProxyTray\dist\NASProxyTray.exe  443904  09/23/2026 16:25:36
+  D:\Desktop\proxy\NASProxyTray.exe  62976  09/18/2026 16:51:53
+  D:\Desktop\NASProxyTray.exe  62976  09/18/2026 16:51:53
+  D:\Desktop\proxy\NASProxyTray.exe  62976  09/18/2026 16:51:53
+  D:\Downloads\新建文件夹\NASProxyTray.exe  440832  09/23/2026 16:15:06
+  D:\工具\proxy\NASProxyTray.exe  62976  09/18/2026 16:51:53

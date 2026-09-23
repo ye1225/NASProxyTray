@@ -124,7 +124,8 @@ cd NASProxyTray
 
 ### 运行时数据
 
-默认放在 exe 同级目录；目录不可写时自动退到 `%LOCALAPPDATA%\NASProxy`。
+**v1.2.1 起一律放在 `%LOCALAPPDATA%\NASProxy\`**（exe 同级目录不生成任何文件）。
+源码直跑时用仓库目录，目录不可写才退到 `%LOCALAPPDATA%\NASProxy`。
 
 | 文件 | 说明 |
 |---|---|
@@ -134,3 +135,40 @@ cd NASProxyTray
 | `update_check.json` | 检查更新的节流记录 |
 | `runtime\<版本>\` | 单文件 exe 释放出来的 `lib\` 与 `ui\` |
 | `.webview2\` | WebView2 用户数据 |
+
+从 v1.2.0 或更早升级：首次运行会自动把配置迁到这个新位置，并清理 exe 目录里
+遗留的 `runtime\`、`.webview2\`、`ProxyTray.log`，不需要手动删。
+
+## 🛡 杀软误报（重要）
+
+程序用 [ps2exe](https://github.com/MScholtes/PS2EXE) 把 PowerShell 脚本打包成单文件 exe，
+并且运行时会**释放 DLL 到本地、修改系统代理设置**。这几条组合起来是国产杀软
+（360、火绒等）启发式规则的常见触发点，**大概率报「木马 / 风险程序 / 修改系统设置」**。
+
+这是**误报**。这个程序的行为是透明且固定的：
+
+- 只写 `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`
+  （即 Windows「设置 → 网络和 Internet → 代理」里那几项，用户手动改的是同一个位置）
+- 只在 `%LOCALAPPDATA%\NASProxy\` 下读写自己的配置与缓存
+- 不联网上报、不注册服务、不开机驻留（除非你自己开了「开机自启」）
+
+**怎么确认文件没被篡改**：比对 Release 页面上公布的 SHA256。
+
+```powershell
+Get-FileHash .\NASProxyTray.exe -Algorithm SHA256
+```
+
+**建议用白名单，而不是长期关掉杀软**（关掉防护等于把整机暴露在真实风险里）：
+
+1. 把 exe 所在目录加入杀软信任区 —— 360：`木马查杀 → 信任区 → 添加目录`
+2. 再把 `%LOCALAPPDATA%\NASProxy` 也加进去（程序会在这里释放 DLL、写配置）
+3. Windows Defender 同理：`设置 → 隐私和安全性 → Windows 安全中心 → 病毒和威胁防护 → 排除项`
+
+> 360 注意：只关掉主界面不算停防护，`ZhuDongFangYu`（360 主动防御）服务仍在运行，
+> 仍会拦截。要么加信任区，要么在 360 托盘菜单里选「退出防护」才彻底停。
+>
+> 若被误删，可在杀软的隔离区恢复，或直接从 Release 重新下载。
+> 也可以到 [360 误报申诉平台](https://sample.360.cn/) 提交文件，减少后续误报。
+
+> 根治办法是给 exe 加**数字签名**（需要代码签名证书），能显著降低误报率；
+> 本项目目前未签名。
