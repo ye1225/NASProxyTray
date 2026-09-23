@@ -438,7 +438,7 @@ TLS 强制 1.2（PS 5.1 默认可能还是 1.0/1.1）。
 | WebView2 Runtime | 已装，运行时上报浏览器版本 **145.0.3800.97** |
 | ps2exe | 1.0.18（`build.ps1` 会自动装到 CurrentUser） |
 | git | 2.55.0.windows.5 |
-| `gh` CLI | ❌ **没装**（影响发布流程，见下） |
+| `gh` CLI | ✅ 2.101.0，装在 `%LOCALAPPDATA%\Programs\gh\gh.exe`，已授权账号 `ye1225` |
 
 **坑清单**：
 
@@ -483,33 +483,70 @@ $errs = $null
 [ProxyTray] mode=PS1 self=...\ProxyTray.ps1
 [ProxyTray] root=...  data=...
 [ProxyTray] apartment=STA
-[ProxyTray] version=1.2.0  packed=False  console=True
+[ProxyTray] version=1.2.6  packed=False  console=True
 [ProxyTray] content=...          ← packed=True 时这里是 runtime\<版本>\
 [ProxyTray] dpiAware=PerMonitorV2
 [ProxyTray] load 10-native.ps1   ← 依次 load 到 90-main.ps1
 [ProxyTray] dpiScale=2  initSize=840x1000
 [ProxyTray] ready. window @ (2336,896) size 840x1000
 [ProxyTray] INIT OK, browser = 145.0.3800.97
-[ProxyTray] 已是最新版本 v1.2.0
+[ProxyTray] 已是最新版本 v1.2.6
 ```
 
 **单文件 exe 干净目录验证**：把 exe 单独拷到一个空目录再跑，
-确认日志里出现 `packed=True`、`content=<数据目录>\runtime\1.2.0`、`INIT OK`，
-且 `runtime\1.2.0\.ok` 已生成。
+确认日志里出现 `packed=True`、`content=<数据目录>\runtime\1.2.6`、`INIT OK`，
+且 `runtime\1.2.6\.ok` 已生成。
 
 ---
 
 ## 发布
 
-Release 用于分发 exe。**当前卡在工具上：本机没装 `gh` CLI。**三条路：
+Release 用于分发 exe，全程命令行：
 
-| 方案 | 说明 |
+```bash
+export PATH="/usr/bin:/bin:$HOME/AppData/Local/Programs/gh:$PATH"
+# 推送（必须带 gh 的凭据助手，否则会弹 CredentialHelperSelector 或直接 401）
+git -c credential.helper='!gh auth git-credential' push origin main
+
+gh release create v1.2.6 dist/NASProxyTray.exe dist/NASProxyTray-v1.2.6.zip \
+  --repo ye1225/NASProxyTray --title "v1.2.6" \
+  --notes-file dist/RELEASE_NOTES-v1.2.6.md --latest
+```
+
+已发布：v1.0.0 / v1.2.0 / v1.2.1 / v1.2.2 / v1.2.3 / v1.2.4 / v1.2.5 / v1.2.6。
+
+踩过的坑：
+
+- **`gh release upload` 读不了项目目录外的文件**（沙箱限制）→ 先把文件拷进仓库目录再传
+- **`gh api .../releases/latest` 的 `.assets` 字段有时为空**（GitHub 正在灰度 immutable
+  releases），要看附件请查 `releases/latest` 或 `releases/{id}/assets`，别信列表里的 `.assets`
+- 直连 github.com 的 TLS 握手偶发失败，重试即可；`gh` 走的是系统代理
+- **推送凭据**：已执行 `git config --global credential.helper manager`，
+  但本机 push 走 `!gh auth git-credential` 更稳
+
+---
+
+## 换机器接手清单
+
+**会跟着仓库走**：全部源码、`HANDOFF.md`、`README.md`、`build.ps1`、`tools/gen-china-list.py`、
+`VERSION`、`lib\` 的 3 个 DLL、`app.ico`。
+
+**不会跟着走**（都是本机/本进程产物）：
+
+| 内容 | 说明 / 恢复方式 |
 | --- | --- |
-| A. 装 `gh` + 授权 | 一次性 `winget install GitHub.cli` 然后 `gh auth login`，之后都可命令行发 |
-| B. 用户给 PAT | 带 `repo` 权限的 Personal Access Token，走 GitHub REST API 上传 |
-| C. 手动发 | 我产出 exe + zip + Release 文案，用户在网页上点一下 |
+| `.workbuddy/`（助手记忆、每日日志） | 已被 `.gitignore` 排除；要带走就整个目录拷 |
+| `dist/`（exe、zip、sha256、发布文案） | 重新 `.\build.ps1` 即可 |
+| `build/list-cache/`（词表缓存） | 重跑 `tools/gen-china-list.py` 会重新下载 |
+| `%LOCALAPPDATA%\NASProxy\`（配置、PAC、日志） | 本机运行时数据，不必带走 |
+| `D:\Desktop\proxy\NASProxyTray-vX.Y.Z\`（用户部署目录） | 用户本机习惯，新机器上重新解压 |
+| `gh` 授权、git 凭据 | 新机器上 `gh auth login` 重新授权 |
 
-远程仓库已有 v1.1.0 的 Release。v1.2.0 的 Release 尚未发布。
+**新机器上的开工三步**：装 WorkBuddy → `git clone` 本仓库 → 让助手先读 `HANDOFF.md`
+（第 60 行的「加载顺序只有一个来源」和第 429 行的「环境事实与踩过的坑」是必读）。
+
+> 桌面机的环境与本机可能不同（屏幕缩放、杀软、PowerShell 版本），
+> 上面「环境事实」一节的数值要在新机器上重新核对一遍。
 
 ---
 
@@ -533,16 +570,15 @@ git add . && git commit -m "..." && git push  # 收工
 | 目标 | 状态 | 落点 |
 | --- | --- | --- |
 | 1. 优化应用逻辑（拆模块） | ✅ | `src\` 下 10 个模块 + 薄入口，原 1366 行单文件已拆完 |
-| 2. 打包成单 exe | ✅ | `build.ps1` 重写；内嵌资源运行时释放；422 KB 单文件 |
+| 2. 打包成单 exe | ✅ | `build.ps1` 重写；内嵌资源运行时释放；约 453 KB 单文件 |
 | 3. 4K 显示优化 | ✅ | Per-Monitor V2 + DpiScale 几何换算，本机 200% 缩放下清晰 |
 | 4. 可升级架构 | ✅ | `80-update.ps1`：静默检查 + 气泡提示 + 菜单项，不自动替换 |
 
 ### 后续可做（未排期）
 
-- **发 v1.2.0 Release**（等上面发布方案定下来）
 - 更新检查目前只比版本号，可以考虑读 Release 的 body 做更新说明展示
 - `ui/index.html` 是 420px 固定宽度设计，若要做真·响应式需另开工作量
-- 界面目前仍是深色单一主题（`theme` 消息已有，但没接亮色实现）
+- 内置国内直连清单（703 条）可以定期用 `tools/gen-china-list.py` 重跑刷新
 
 ---
 
