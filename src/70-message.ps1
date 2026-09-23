@@ -187,7 +187,7 @@ $webView.add_CoreWebView2InitializationCompleted([System.EventHandler[Microsoft.
                     $cfg = Get-ProxyConfig
                     $script:CurrentConfig = $cfg
                     Update-TrayIcon -Enabled ([bool]$cfg.enabled)
-                    $payload = @{ action = 'config'; config = $cfg; version = $script:AppVersion } | ConvertTo-Json -Depth 6 -Compress
+                    $payload = @{ action = 'config'; config = $cfg; version = $script:AppVersion; chinaCount = @($script:ChinaDirectDomains).Count } | ConvertTo-Json -Depth 6 -Compress
                     $s2.PostWebMessageAsString($payload)
                 }
 
@@ -195,7 +195,7 @@ $webView.add_CoreWebView2InitializationCompleted([System.EventHandler[Microsoft.
                     $ui = $obj.config
                     if ($null -eq $ui) { return }
                     $cfg = Get-ProxyConfig
-                    foreach ($k in @('server','port','override','mode','pacSource','pacDomains','localPacPath','remotePacUrl','pacRewrite')) {
+                    foreach ($k in @('server','port','override','mode','pacSource','builtinPolicy','pacDomains','localPacPath','remotePacUrl','pacRewrite')) {
                         if ($ui.PSObject.Properties.Name -contains $k) {
                             $cfg.PSObject.Properties[$k].Value = $ui.$k
                         }
@@ -225,7 +225,7 @@ $webView.add_CoreWebView2InitializationCompleted([System.EventHandler[Microsoft.
                     $wantOn = [bool]$obj.enabled
                     $cfg = Get-ProxyConfig
                     if ($obj.config) {
-                        foreach ($k in @('server','port','override','mode','pacSource','pacDomains','localPacPath','remotePacUrl','pacRewrite','autoStart')) {
+                        foreach ($k in @('server','port','override','mode','pacSource','builtinPolicy','pacDomains','localPacPath','remotePacUrl','pacRewrite','autoStart')) {
                             if ($obj.config.PSObject.Properties.Name -contains $k) {
                                 $cfg.PSObject.Properties[$k].Value = $obj.config.$k
                             }
@@ -257,7 +257,7 @@ $webView.add_CoreWebView2InitializationCompleted([System.EventHandler[Microsoft.
                     $cfg.autoStart = $want
                     Save-ProxyConfig -Config $cfg
                     $script:CurrentConfig = $cfg
-                    $payload = @{ action = 'config'; config = $cfg; version = $script:AppVersion } | ConvertTo-Json -Depth 6 -Compress
+                    $payload = @{ action = 'config'; config = $cfg; version = $script:AppVersion; chinaCount = @($script:ChinaDirectDomains).Count } | ConvertTo-Json -Depth 6 -Compress
                     $s2.PostWebMessageAsString($payload)
                 }
 
@@ -295,7 +295,7 @@ $webView.add_CoreWebView2InitializationCompleted([System.EventHandler[Microsoft.
                     try { Set-AutoStart -Enabled $false | Out-Null } catch { }
                     try { Clear-SystemProxy } catch { }
                     Update-TrayIcon -Enabled $false
-                    $payload = @{ action = 'config'; config = $cfg; version = $script:AppVersion } | ConvertTo-Json -Depth 6 -Compress
+                    $payload = @{ action = 'config'; config = $cfg; version = $script:AppVersion; chinaCount = @($script:ChinaDirectDomains).Count } | ConvertTo-Json -Depth 6 -Compress
                     $s2.PostWebMessageAsString($payload)
                 }
             }

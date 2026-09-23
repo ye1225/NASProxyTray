@@ -120,7 +120,53 @@ function Stop-PacServer {
 
 
 function Build-BuiltinPac {
-    param([string]$DomainsText, [string]$ProxyAddr)
+    param(
+        [string]$DomainsText,
+        [string]$ProxyAddr,
+        [string]$Policy = 'proxy-list'
+    )
+
+    # ---------- 策略 A：内置「国内直连」清单，其余全部走代理 ----------
+    # 用户的代理自己通常还有一层分流规则，所以这里只需要覆盖常见国内站；
+    # 漏判的域名会走代理，由代理那边再判断，不会出错。
+    if ($Policy -eq 'direct-list') {
+        $entries = New-Object System.Collections.Generic.List[string]
+        $seen    = New-Object 'System.Collections.Generic.HashSet[string]'
+
+        foreach ($d in $script:ChinaDirectDomains) {
+            $k = ([string]$d).Trim().ToLower().TrimStart('.')
+            if ($k -and $seen.Add($k)) { $entries.Add("  `"$k`":1") }
+        }
+
+        $table = ($entries -join ",`n")
+
+        # 整段后缀直连（如 .cn）
+        $suffixChecks = (($script:ChinaDirectSuffixes | Where-Object { $_ }) | ForEach-Object {
+            $sfx = ([string]$_).Trim().ToLower()
+            $len = $sfx.Length
+            "  if (host.length > $len && host.slice(-$len) === `"$sfx`") return `"DIRECT`";"
+        }) -join "`n"
+
+        return @"
+var CHINA_DIRECT = {
+$table
+};
+
+function FindProxyForURL(url, host) {
+  host = host.toLowerCase();
+$suffixChecks
+  var parts = host.split(".");
+  var i, cand;
+  for (i = 0; i < parts.length - 1; i++) {
+    cand = parts.slice(i).join(".");
+    if (CHINA_DIRECT[cand] === 1) return "DIRECT";
+  }
+  return "$ProxyAddr";
+}
+"@
+    }
+
+    # ---------- 策略 B：只代理列出的域名，其余直连 ----------
     $lines = New-Object System.Collections.Generic.List[string]
     foreach ($line in ($DomainsText -split "`r?`n")) {
         $d = $line.Trim().ToLower()
@@ -227,7 +273,14 @@ function Apply-ProxyConfig {
             }
             default {
                 $proxyAddr  = "PROXY $($Config.server):$($Config.port); DIRECT"
-                $pacContent = Build-BuiltinPac -DomainsText $Config.pacDomains -ProxyAddr $proxyAddr
+                $policy     = $Config.builtinPolicy
+                if ([string]::IsNullOrWhiteSpace($policy)) { $policy = 'direct-list' }
+                $pacContent = Build-BuiltinPac -DomainsText $Config.pacDomains -ProxyAddr $proxyAddr -Policy $policy
+                if ($policy -eq 'direct-list') {
+                    Write-Host "[ProxyTray] 内置 PAC 策略=国内直连  清单 $(@($script:ChinaDirectDomains).Count) 条 + $(@($script:ChinaDirectSuffixes).Count) 个后缀，其余走代理"
+                } else {
+                    Write-Host "[ProxyTray] 内置 PAC 策略=仅代理指定域名"
+                }
             }
         }
     } catch {

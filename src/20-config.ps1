@@ -30,17 +30,18 @@ function Get-DefaultProxyConfig {
     ) -join "`n"
 
     [PSCustomObject]@{
-        server       = '192.168.31.126'
-        port         = '41634'
-        override     = 'localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*'
-        mode         = 'global'
-        pacSource    = 'builtin'
-        pacDomains   = $domains
-        localPacPath = ''
-        remotePacUrl = ''
-        pacRewrite   = $true
-        autoStart    = $false
-        enabled      = $false
+        server        = '192.168.31.126'
+        port          = '41634'
+        override      = 'localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*'
+        mode          = 'smart'
+        pacSource     = 'builtin'
+        builtinPolicy = 'direct-list'
+        pacDomains    = $domains
+        localPacPath  = ''
+        remotePacUrl  = ''
+        pacRewrite    = $true
+        autoStart     = $false
+        enabled       = $false
     }
 }
 
@@ -49,7 +50,7 @@ function Get-ProxyConfig {
     if (Test-Path $script:ConfigFile) {
         try {
             $raw = Get-Content $script:ConfigFile -Raw -Encoding UTF8 | ConvertFrom-Json
-            foreach ($k in @('server','port','override','mode','pacSource','pacDomains','localPacPath','remotePacUrl','pacRewrite','autoStart','enabled')) {
+            foreach ($k in @('server','port','override','mode','pacSource','builtinPolicy','pacDomains','localPacPath','remotePacUrl','pacRewrite','autoStart','enabled')) {
                 if ($raw.PSObject.Properties.Name -contains $k) {
                     $cfg.PSObject.Properties[$k].Value = $raw.$k
                 }

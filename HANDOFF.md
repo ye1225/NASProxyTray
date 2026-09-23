@@ -1,7 +1,7 @@
 ﻿# NASProxyTray · 交接文档
 
 > 交接给下一个接手的人（或 AI）。
-> **当前状态：v1.2.1 已发布，四个目标全部落地并通过验证。**
+> **当前状态：v1.2.3 已发布，四个目标全部落地并通过验证。**
 
 ---
 
@@ -14,7 +14,7 @@ Windows 托盘工具，一键切换系统代理指向 NAS，支持全局代理�
 | --- | --- |
 | 仓库 | https://github.com/ye1225/NASProxyTray |
 | 本地路径 | `D:\Desktop\NASProxyTray` |
-| 当前版本 | **v1.2.2**（唯一版本源：仓库根目录 `VERSION` 文件） |
+| 当前版本 | **v1.2.3**（唯一版本源：仓库根目录 `VERSION` 文件） |
 | 主分支 | `main` |
 | 运行环境 | Windows 10 1809+ / Windows 11 + WebView2 Runtime |
 | 发布形态 | **单个 `NASProxyTray.exe`**（v1.2.0 起，不必再带 `lib\` 和 `ui\`） |
@@ -127,7 +127,8 @@ Get-ChildItem -LiteralPath $srcPath -Filter '*.ps1' |
 | --- | --- | --- |
 | `mode` | `global` / `smart` | `smart` 才看 `pacSource`；**`global` 下 PAC 相关设置全部被忽略** |
 | `pacSource` | `builtin` / `local` / `remote` | 内置域名表 / 本地 `.pac` / 远程 URL（失败回退 `proxy_remote.pac` 缓存） |
-| `pacRewrite` | `true` / `false` | 缺省视为 `true`。仅对外部 PAC 生效，见下一节 |
+| `builtinPolicy` | `direct-list` / `proxy-list` | **仅对 `pacSource=builtin` 生效**，见下一节；缺省按 `direct-list` |
+| `pacRewrite` | `true` / `false` | 缺省视为 `true`。仅对外部 PAC 生效，见下下节 |
 
 ### `30-proxy.ps1` — 代理引擎
 
@@ -138,7 +139,7 @@ Get-ChildItem -LiteralPath $srcPath -Filter '*.ps1' |
 | `Clear-SystemProxy` | 清空注册表代理项 |
 | `Start-PacServer` | `TcpListener` 服务 `http://127.0.0.1:<随机端口>/proxy.pac` |
 | `Stop-PacServer` | 停 listener 让阻塞的 `AcceptTcpClient` 醒来 → 优雅退出 |
-| `Build-BuiltinPac` | 按域名列表生成 PAC 内容 |
+| `Build-BuiltinPac` | 按 `-Policy` 生成内置 PAC（两种策略，见下） |
 | `Convert-PacProxyEndpoint` | **把外部 PAC 里写死的代理地址换成本应用配置的地址**（见下） |
 | `Apply-ProxyConfig` | 按 config 应用（全局 / PAC / 关闭），外部 PAC 会先过一遍地址替换 |
 | `Test-ProxyConn` | `TcpClient` 连接测试，返回延迟 ms |
@@ -146,6 +147,59 @@ Get-ChildItem -LiteralPath $srcPath -Filter '*.ps1' |
 
 > `Set-GlobalProxy` / `Set-PacProxy` / `Clear-SystemProxy` / `Set-AutoStart` 四个都会改系统，
 > 全部做了 DRYRUN 短路。
+
+#### 内置分流：两种策略（v1.2.3）
+
+`Build-BuiltinPac -Policy` 有两个取值：
+
+| 策略 | PAC 行为 | 用到的数据 |
+| --- | --- | --- |
+| `direct-list`（默认） | 命中清单 → `DIRECT`；否则 → `PROXY <你的地址>` | `src/35-china-direct.ps1` 里的 703 条清单 + `.cn` 后缀 |
+| `proxy-list`（旧行为） | 命中清单 → `PROXY`；否则 → `DIRECT` | 配置里的 `pacDomains`（用户可编辑） |
+
+`direct-list` 生成的 PAC 结构（约 13 KB）：
+
+```js
+var CHINA_DIRECT = { "baidu.com":1, "qq.com":1, ... };   // 703 条
+
+function FindProxyForURL(url, host) {
+  host = host.toLowerCase();
+  if (host.length > 3 && host.slice(-3) === ".cn") return "DIRECT";
+  var parts = host.split("."), i, cand;
+  for (i = 0; i < parts.length - 1; i++) {
+    cand = parts.slice(i).join(".");
+    if (CHINA_DIRECT[cand] === 1) return "DIRECT";   // 哈希查找，O(1)
+  }
+  return "PROXY <server>:<port>; DIRECT";
+}
+```
+
+设计要点：
+
+- **清单只需覆盖常见站**。用户自己的代理通常还有一层分流规则，清单漏掉的国内域名
+  会走代理由代理再判断，不会出错；清单的作用是让流量少绕路，不是当唯一裁判。
+- **后缀逐级查找 + 哈希表**，单次判定 O(1)，清单规模不影响 PAC 性能。
+  （别写成逐个 `dnsDomainIs` 的线性扫描 —— 700 条就是 700 次比较。）
+- `direct-list` 下 **`pacDomains` 不参与**。否则默认那 33 条里含 `*.google.com`，
+  会被当成"额外直连"从而把 Google 也直连掉。
+- 用对象字面量而不是 `Set`，兼容老 PAC 引擎。
+- 判定用 `CHINA_DIRECT[cand] === 1`（严格等于 1）而不是真值判断，
+  避免 `constructor` / `toString` 这类原型链 key 命中。
+
+**清单怎么来的**：`tools/gen-china-list.py` 从三个公开源交叉生成 ——
+`felixonmars/dnsmasq-china-list`、`blackmatrix7/ios_rule_script`（ChinaMax）、
+`ACL4SSR`（ChinaDomain）。规则是：
+
+1. 骨架 = ACL4SSR 精选里被前两个源确认过的域名（约 570 条）
+2. 补充 = 按品牌关键词（约 115 个，按域名**段精确匹配**）从「两源交集」里捞
+3. 附加 = 手工列的十几个漏网站点
+4. 自检 = 被墙站（google/github/... ）若被收录则剔除
+
+> 重新生成：`python tools/gen-china-list.py`（原始清单缓存在 `build/list-cache/`）。
+> 注意直连 GitHub raw 在本机不通，脚本走 jsDelivr CDN。
+>
+> **踩过的坑**：手工重打品牌词表时漏了 `xhscdn`（小红书图片 CDN），
+> 导致清单少一条且 `diff` 只在一处报差异 —— 改词表后务必重新比对生成结果。
 
 #### 外部 PAC 的代理地址替换（v1.2.2）
 

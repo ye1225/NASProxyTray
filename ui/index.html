@@ -338,6 +338,23 @@ textarea {
 .pac-panel { display: none; flex-direction: column; gap: 6px; }
 .pac-panel.active { display: flex; }
 
+.pac-tabs.sub { background: transparent; padding: 0; gap: 6px; }
+.pac-tabs.sub .pac-tab {
+    flex: 0 0 auto; padding: 4px 11px;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 7px; font-size: 11px;
+}
+.pac-tabs.sub .pac-tab.active {
+    background: var(--card); border-color: var(--accent);
+    color: var(--accent); box-shadow: none;
+}
+.policy-block { display: none; flex-direction: column; gap: 6px; }
+.policy-block.active { display: flex; }
+.pac-hint code {
+    font-family: var(--mono, monospace); font-size: 10px;
+    background: var(--bg); padding: 1px 4px; border-radius: 4px;
+}
+
 .file-picker { display: flex; gap: 6px; }
 .file-picker input[type="text"] { flex: 1; }
 .browse-btn {
@@ -559,10 +576,23 @@ textarea {
                         </div>
                     </div>
                     <div class="pac-panel active" data-panel="builtin">
-                        <label class="sub-label">
-                            分流域名 <span class="count" id="domainCount">32</span> 个（可编辑）
-                        </label>
-                        <textarea id="proxyDomains" style="height:88px"></textarea>
+                        <div class="pac-tabs sub" id="builtinPolicyTabs">
+                            <button class="pac-tab active" data-policy="direct-list" type="button">国内直连</button>
+                            <button class="pac-tab" data-policy="proxy-list" type="button">仅代理指定域名</button>
+                        </div>
+                        <div class="policy-block active" data-policy-block="direct-list">
+                            <div class="pac-hint">
+                                内置 <b id="chinaDirectCount">701</b> 条国内常见域名，外加全部
+                                <code>.cn</code> 域名，一律直连；其余域名全部走你的代理。
+                                清单只覆盖常见站 —— 个别漏掉的会走代理，你的代理自己还会再分流一次，不会出错。
+                            </div>
+                        </div>
+                        <div class="policy-block" data-policy-block="proxy-list">
+                            <label class="sub-label">
+                                代理域名 <span class="count" id="domainCount">32</span> 个（可编辑）
+                            </label>
+                            <textarea id="proxyDomains" style="height:88px"></textarea>
+                        </div>
                     </div>
                     <div class="pac-panel" data-panel="local">
                         <label class="sub-label">PAC 文件路径</label>
@@ -643,6 +673,7 @@ let autoStart = false;
 let pacRewrite = true;
 let currentMode = 'global';
 let currentPacSource = 'builtin';
+let builtinPolicy = 'direct-list';
 let dirty = false;
 let connTestTimer = null;
 
@@ -666,10 +697,13 @@ const autoStartToggle = document.getElementById('autoStartToggle');
 const modeCards       = document.querySelectorAll('.mode-card');
 const pacBlock        = document.getElementById('pacBlock');
 const pacDivider      = document.getElementById('pacDivider');
-const pacTabs         = document.querySelectorAll('.pac-tab');
+const pacTabs         = document.querySelectorAll('.pac-tabs:not(.sub) .pac-tab');
 const pacPanels       = document.querySelectorAll('.pac-panel');
 const proxyDomains    = document.getElementById('proxyDomains');
 const domainCount     = document.getElementById('domainCount');
+const policyTabs      = document.querySelectorAll('#builtinPolicyTabs .pac-tab');
+const policyBlocks    = document.querySelectorAll('.policy-block');
+const chinaCountEl    = document.getElementById('chinaDirectCount');
 const localPacPath    = document.getElementById('localPacPath');
 const browsePacBtn    = document.getElementById('browsePac');
 const remotePacUrl    = document.getElementById('remotePacUrl');
@@ -709,6 +743,12 @@ function updateDomainCount() {
     domainCount.textContent = lines.length;
 }
 
+// 内置规则有两种策略：国内直连（默认）/ 仅代理指定域名
+function updateBuiltinPolicyView() {
+    policyTabs.forEach(t => t.classList.toggle('active', t.dataset.policy === builtinPolicy));
+    policyBlocks.forEach(b => b.classList.toggle('active', b.dataset.policyBlock === builtinPolicy));
+}
+
 // 第三方 PAC 里写的是作者本机的代理地址（gfw-pac 就是 127.0.0.1:3128），
 // 打开开关时会被替换成下面配置的服务器地址。这里把替换后的结果直接显示出来。
 function updatePacRewriteHint() {
@@ -739,7 +779,10 @@ function updateAdvancedHint() {
     const customPac = currentMode === 'smart' && (
         (currentPacSource === 'local' && localPacPath.value.trim() !== '') ||
         (currentPacSource === 'remote' && remotePacUrl.value.trim() !== '') ||
-        (currentPacSource === 'builtin' && proxyDomains.value.trim() !== DEFAULTS.domains) ||
+        (currentPacSource === 'builtin' && (
+            builtinPolicy !== 'direct-list' ||
+            proxyDomains.value.trim() !== DEFAULTS.domains
+        )) ||
         ((currentPacSource === 'local' || currentPacSource === 'remote') && pacRewrite === false)
     );
 
@@ -807,6 +850,7 @@ function collectConfig() {
         override: overrideInput.value,
         mode: currentMode,
         pacSource: currentPacSource,
+        builtinPolicy: builtinPolicy,
         pacDomains: proxyDomains.value,
         localPacPath: localPacPath.value.trim(),
         remotePacUrl: remotePacUrl.value.trim(),
@@ -830,6 +874,10 @@ function applyConfig(cfg) {
     currentPacSource = cfg.pacSource || 'builtin';
     pacTabs.forEach(t => t.classList.toggle('active', t.dataset.pac === currentPacSource));
     pacPanels.forEach(p => p.classList.toggle('active', p.dataset.panel === currentPacSource));
+
+    builtinPolicy = cfg.builtinPolicy || 'direct-list';
+    updateBuiltinPolicyView();
+    if (cfg.chinaCount && chinaCountEl) chinaCountEl.textContent = cfg.chinaCount;
 
     const smart = (currentMode === 'smart');
     pacBlock.classList.toggle('visible', smart);
@@ -949,6 +997,15 @@ pacTabs.forEach(tab => {
         tab.classList.add('active');
         currentPacSource = tab.dataset.pac;
         pacPanels.forEach(p => p.classList.toggle('active', p.dataset.panel === currentPacSource));
+        markDirty();
+        updateAdvancedHint();
+    });
+});
+
+policyTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+        builtinPolicy = tab.dataset.policy;
+        updateBuiltinPolicyView();
         markDirty();
         updateAdvancedHint();
     });
