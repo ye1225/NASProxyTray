@@ -2,6 +2,7 @@
 dist/
 dist_backup/
 _pack/
+build/
 bin/
 obj/
 
@@ -44,3 +45,7 @@ config.local.json
 config.json
 proxy.pac
 proxy_remote.pac
+
+# ========== 助手工作目录（本地记忆/任务，不入库）==========
+.workbuddy/
+
