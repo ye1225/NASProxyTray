@@ -30,9 +30,36 @@ $form.ShowInTaskbar   = $false
 $form.BackColor       = [System.Drawing.Color]::FromArgb(24,24,27)
 $form.Opacity         = 0
 
+# ---------- DPI 换算基准 ----------
+# 声明 DPI 感知之后，SetBounds / 边距 / 圆角用的都是物理像素，
+# 而前端给的是 CSS 像素，两者相差一个 DpiScale。
+# 关键：句柄没建出来之前 Form.DeviceDpi 恒为 96，必须先建句柄再读，
+# 否则在 200% 缩放的机器上会算出 scale=1，界面瞬间缩成一半。
+$null = $form.Handle
+$script:DpiScale = 1.0
+$dpi = 0
+try { $dpi = [int]$form.DeviceDpi } catch { }
+if ($dpi -le 96) {
+    try { $dpi = [int][NativeDpi.Api]::GetDpiForSystem() } catch { }
+}
+if ($dpi -gt 0) { $script:DpiScale = $dpi / 96.0 }
+if ($script:DpiScale -lt 1) { $script:DpiScale = 1 }
+$script:DpiScale = [Math]::Round($script:DpiScale * 4) / 4        # 归到 0.25 的整数倍，避免半像素抖动
+
+function Update-DpiMetrics {
+    $script:margin       = [int][Math]::Round(12  * $script:DpiScale)
+    $script:initW        = [int][Math]::Round(420 * $script:DpiScale)
+    $script:initH        = [int][Math]::Round(500 * $script:DpiScale)
+    $script:cornerRadius = [Math]::Max(1, [int][Math]::Round(24 * $script:DpiScale))
+}
+Update-DpiMetrics
+
+$script:initLeft = $script:wa.Right  - $script:initW - $script:margin
+$script:initTop  = $script:wa.Bottom - $script:initH - $script:margin
 $form.SetBounds($script:initLeft, $script:initTop, $script:initW, $script:initH)
 $script:baseRight  = $script:initLeft + $script:initW
 $script:baseBottom = $script:initTop  + $script:initH
+Write-Host ("[ProxyTray] dpiScale={0}  initSize={1}x{2}" -f $script:DpiScale, $script:initW, $script:initH)
 
 # ---------- webview ----------
 $webView = New-Object Microsoft.Web.WebView2.WinForms.WebView2
@@ -101,7 +128,8 @@ $script:sizeTimer.add_Tick({
     $maxH    = $script:wa.Height - 2 * $script:margin
     $targetH = [Math]::Min($h, $maxH)
 
-    if ($form.Width -eq $targetW -and [Math]::Abs($form.Height - $targetH) -le 8) { return }
+    $slack = [Math]::Max(2, [int][Math]::Round(8 * $script:DpiScale))
+    if ($form.Width -eq $targetW -and [Math]::Abs($form.Height - $targetH) -le $slack) { return }
 
     $newLeft = $script:baseRight  - $targetW
     $newTop  = $script:baseBottom - $targetH
@@ -136,3 +164,21 @@ $form.add_Deactivate({
     $script:hideTimer.Stop()
     $script:hideTimer.Start()
 })
+
+# ---------- DPI 变化：拖到另一块显示器 / 改系统缩放 ----------
+try {
+    $form.add_DpiChanged({
+        param($sender, $e)
+        try { $script:DpiScale = $form.DeviceDpi / 96.0 } catch { }
+        if ($script:DpiScale -lt 1) { $script:DpiScale = 1 }
+        $script:DpiScale = [Math]::Round($script:DpiScale * 4) / 4
+        Update-DpiMetrics
+        try { $script:wa = [System.Windows.Forms.Screen]::FromHandle($form.Handle).WorkingArea } catch { }
+        $script:lockedWidth = 0          # 让前端按新比例重新上报尺寸
+        $script:useDwmRound = $false
+        Reset-ToBottomRight
+        Write-Host ("[ProxyTray] DPI 变化 -> scale={0}" -f $script:DpiScale)
+    })
+} catch {
+    Write-Host "[ProxyTray] 注册 DpiChanged 失败: $_"
+}

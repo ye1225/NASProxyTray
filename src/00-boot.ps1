@@ -10,6 +10,34 @@
 $ErrorActionPreference = 'Stop'
 
 # ---------------------------------------------------------------
+# 高 DPI：必须在创建任何窗口/控件之前声明。
+# 不声明的话进程是 DPI-unaware 的，Windows 会先把整个界面按 96 DPI
+# 光栅化成位图、再整体拉伸到物理像素 —— 4K 上看着就是糊的。
+# 声明 Per-Monitor V2 后由本进程按真实 DPI 自己渲染，界面才清晰。
+# ---------------------------------------------------------------
+$script:DpiAwareMode = 'none'
+try {
+    Add-Type -Namespace 'NativeDpi' -Name 'Api' -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern bool SetProcessDpiAwarenessContext(System.IntPtr value);
+[System.Runtime.InteropServices.DllImport("shcore.dll")]
+public static extern int SetProcessDpiAwareness(int value);
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern bool SetProcessDPIAware();
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+public static extern uint GetDpiForSystem();
+'@
+    # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 == (HANDLE)-4
+    if ([NativeDpi.Api]::SetProcessDpiAwarenessContext([System.IntPtr]::new(-4))) {
+        $script:DpiAwareMode = 'PerMonitorV2'
+    } elseif ([NativeDpi.Api]::SetProcessDpiAwareness(2) -eq 0) {
+        $script:DpiAwareMode = 'PerMonitor'
+    } elseif ([NativeDpi.Api]::SetProcessDPIAware()) {
+        $script:DpiAwareMode = 'System'
+    }
+} catch { }
+
+# ---------------------------------------------------------------
 # 0) 自身路径探测（.ps1 直跑 / ps2exe 打包 exe 通用）
 # ---------------------------------------------------------------
 $script:appSelf  = $null
@@ -260,6 +288,7 @@ Write-Host ("[ProxyTray] root={0}  data={1}" -f $root, $script:DataDir)
 Write-Host ("[ProxyTray] apartment={0}" -f [System.Threading.Thread]::CurrentThread.GetApartmentState())
 Write-Host ("[ProxyTray] version={0}  packed={1}  console={2}" -f $script:AppVersion, $script:UsingPacked, $script:HasConsole)
 Write-Host ("[ProxyTray] content={0}" -f $script:RuntimeDir)
+Write-Host ("[ProxyTray] dpiAware={0}" -f $script:DpiAwareMode)
 
 
 # ---------- 视觉样式：必须在创建任何控件之前调用 ----------
@@ -269,5 +298,3 @@ try {
 } catch {
     Write-Host "[ProxyTray] EnableVisualStyles failed: $_" -ForegroundColor Yellow
 }
-
-

@@ -31,9 +31,12 @@ if ($script:hasDarkRenderer) {
 $menu.BackColor         = [System.Drawing.Color]::FromArgb(38, 38, 42)
 $menu.ForeColor         = [System.Drawing.Color]::FromArgb(240, 240, 245)
 $menu.ShowImageMargin   = $false
-$menu.Padding           = New-Object System.Windows.Forms.Padding(2, 4, 2, 4)
+$padX = [Math]::Max(2, [int][Math]::Round(2 * $script:DpiScale))
+$padY = [Math]::Max(4, [int][Math]::Round(4 * $script:DpiScale))
+$menu.Padding           = New-Object System.Windows.Forms.Padding($padX, $padY, $padX, $padY)
 $menu.DropShadowEnabled = $true
-try { $menu.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 9) } catch { }
+$menuFontSize = [Math]::Max(9, [Math]::Round(9 * $script:DpiScale, 1))
+try { $menu.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', $menuFontSize) } catch { }
 
 $miShow  = [System.Windows.Forms.ToolStripMenuItem]::new('显示 / 隐藏窗口')
 $miDev   = [System.Windows.Forms.ToolStripMenuItem]::new('打开开发者工具')
@@ -44,7 +47,9 @@ $miSep2  = [System.Windows.Forms.ToolStripSeparator]::new()
 $miExit  = [System.Windows.Forms.ToolStripMenuItem]::new('退出')
 
 foreach ($it in @($miShow,$miDev,$miClean,$miSize,$miExit)) {
-    $it.Padding = New-Object System.Windows.Forms.Padding(10, 3, 10, 3)
+$itemPadX = [Math]::Max(10, [int][Math]::Round(10 * $script:DpiScale))
+$itemPadY = [Math]::Max(3,  [int][Math]::Round(3  * $script:DpiScale))
+    $it.Padding = New-Object System.Windows.Forms.Padding($itemPadX, $itemPadY, $itemPadX, $itemPadY)
 }
 
 [void]$menu.Items.Add($miShow)

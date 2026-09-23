@@ -165,10 +165,10 @@ $webView.add_CoreWebView2InitializationCompleted([System.EventHandler[Microsoft.
                 'hide' { Hide-MainWindow }
 
                 'size' {
-                    $w = [int]$obj.w; $h = [int]$obj.h
+                    # 前端上报的是 CSS 像素，SetBounds 要的是物理像素，相差一个 DpiScale
                     if ($w -lt 200 -or $h -lt 200) { return }
-                    $script:pendingW = $w
-                    $script:pendingH = $h
+                    $script:pendingW = [int][Math]::Round($w * $script:DpiScale)
+                    $script:pendingH = [int][Math]::Round($h * $script:DpiScale)
                     $script:sizeTimer.Stop()
                     $script:sizeTimer.Start()
                 }
