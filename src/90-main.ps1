@@ -83,6 +83,10 @@ try { Stop-PacServer } catch { }
 try { if ($script:showTimer) { $script:showTimer.Dispose() } } catch { }
 try { if ($script:sizeTimer) { $script:sizeTimer.Dispose() } } catch { }
 try { $script:hideTimer.Dispose() } catch { }
+try { if ($script:updateStartTimer) { $script:updateStartTimer.Stop(); $script:updateStartTimer.Dispose() } } catch { }
+try { if ($script:updatePollTimer)  { $script:updatePollTimer.Stop();  $script:updatePollTimer.Dispose()  } } catch { }
+try { if ($script:UpdatePs)         { $script:UpdatePs.Stop(); $script:UpdatePs.Dispose() } } catch { }
+try { if ($script:UpdateRs)         { $script:UpdateRs.Close(); $script:UpdateRs.Dispose() } } catch { }
 try { $tray.Visible = $false; $tray.Dispose() } catch { }
 try { $menu.Dispose() } catch { }
 try { if ($script:mutex) { if ($script:hasMutex) { $script:mutex.ReleaseMutex() }; $script:mutex.Dispose() } } catch { }

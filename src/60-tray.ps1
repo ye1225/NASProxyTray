@@ -38,26 +38,35 @@ $menu.DropShadowEnabled = $true
 $menuFontSize = [Math]::Max(9, [Math]::Round(9 * $script:DpiScale, 1))
 try { $menu.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', $menuFontSize) } catch { }
 
+# 有新版本时才显示的一项（默认隐藏，由 80-update 控制）
+$miNewVer = [System.Windows.Forms.ToolStripMenuItem]::new('发现新版本')
+$miNewVer.Visible = $false
 $miShow  = [System.Windows.Forms.ToolStripMenuItem]::new('显示 / 隐藏窗口')
 $miDev   = [System.Windows.Forms.ToolStripMenuItem]::new('打开开发者工具')
 $miSep1  = [System.Windows.Forms.ToolStripSeparator]::new()
 $miClean = [System.Windows.Forms.ToolStripMenuItem]::new('立即清除系统代理')
 $miSize  = [System.Windows.Forms.ToolStripMenuItem]::new('复位窗口位置')
+$miUpdate = [System.Windows.Forms.ToolStripMenuItem]::new('检查更新')
 $miSep2  = [System.Windows.Forms.ToolStripSeparator]::new()
 $miExit  = [System.Windows.Forms.ToolStripMenuItem]::new('退出')
 
-foreach ($it in @($miShow,$miDev,$miClean,$miSize,$miExit)) {
-$itemPadX = [Math]::Max(10, [int][Math]::Round(10 * $script:DpiScale))
-$itemPadY = [Math]::Max(3,  [int][Math]::Round(3  * $script:DpiScale))
+foreach ($it in @($miNewVer,$miShow,$miDev,$miClean,$miSize,$miUpdate,$miExit)) {
+    $itemPadX = [Math]::Max(10, [int][Math]::Round(10 * $script:DpiScale))
+    $itemPadY = [Math]::Max(3,  [int][Math]::Round(3  * $script:DpiScale))
     $it.Padding = New-Object System.Windows.Forms.Padding($itemPadX, $itemPadY, $itemPadX, $itemPadY)
 }
 
+[void]$menu.Items.Add($miNewVer)
 [void]$menu.Items.Add($miShow)
 [void]$menu.Items.Add($miDev)
 [void]$menu.Items.Add($miSep1)
 [void]$menu.Items.Add($miClean)
 [void]$menu.Items.Add($miSize)
+[void]$menu.Items.Add($miUpdate)
 [void]$menu.Items.Add($miSep2)
+$miVersion = [System.Windows.Forms.ToolStripMenuItem]::new(('v{0}' -f $script:AppVersion))
+$miVersion.Enabled = $false
+[void]$menu.Items.Add($miVersion)
 [void]$menu.Items.Add($miExit)
 
 $tray.ContextMenuStrip = $menu
@@ -160,3 +169,4 @@ $tray.add_MouseDoubleClick({
         Write-Host "[ProxyTray] tray double-click failed: $_"
     }
 })
+

@@ -1,18 +1,23 @@
 ﻿# NASProxyTray · 交接文档
 
-> 交给 WorkBuddy 的完整上下文。请先读 README.md、本文件、ProxyTray.ps1，再动手。
+> 交接给下一个接手的人（或 AI）。
+> **当前状态：v1.2.0 重构已完成，四个目标全部落地并通过验证。**
 
 ---
 
 ## 项目简介
 
-Windows 托盘工具，一键切换系统代理指向 NAS，支持全局代理和智能分流（PAC）。
-技术栈：PowerShell 5.1 + WinForms 承载 WebView2 控件，UI 是纯 HTML/CSS/JS。
+Windows 托盘工具，一键切换系统代理指向 NAS，支持全局代理与 PAC 智能分流。
+技术栈：**PowerShell 5.1 + WinForms 承载 WebView2 控件**，界面是纯 HTML/CSS/JS。
 
-- **仓库**：https://github.com/ye1225/NASProxyTray
-- **本地路径**：D:\Desktop\NASProxyTray
-- **当前版本**：v1.1.0（HEAD: 53f77be）
-- **运行环境**：Windows 10 1803+ / Windows 11，需要 WebView2 Runtime（系统一般自带）
+| 项目 | 值 |
+| --- | --- |
+| 仓库 | https://github.com/ye1225/NASProxyTray |
+| 本地路径 | `D:\Desktop\NASProxyTray` |
+| 当前版本 | **v1.2.0**（唯一版本源：仓库根目录 `VERSION` 文件） |
+| 主分支 | `main` |
+| 运行环境 | Windows 10 1809+ / Windows 11 + WebView2 Runtime |
+| 发布形态 | **单个 `NASProxyTray.exe`**（v1.2.0 起，不必再带 `lib\` 和 `ui\`） |
 
 ---
 
@@ -20,243 +25,427 @@ Windows 托盘工具，一键切换系统代理指向 NAS，支持全局代理�
 
 ```
 D:\Desktop\NASProxyTray\
-├── lib/                              WebView2 运行时依赖（3 个 DLL）
-│   ├── Microsoft.Web.WebView2.Core.dll
-│   ├── Microsoft.Web.WebView2.WinForms.dll
-│   └── WebView2Loader.dll
-├── ui/
-│   └── index.html                    WebView2 界面（420px 固定宽度设计）
-├── .gitignore
-├── app.ico                           程序图标
-├── build.ps1                         构建脚本（注入 icon + ps2exe 打包）
-├── debug.bat                         调试入口
+├── ProxyTray.ps1                     薄入口：定位 src\ 并按文件名顺序 dot-source
+├── src\                              ← 真正的实现，10 个模块
+│   ├── 00-boot.ps1                   启动地基（含 DPI 声明、资源释放）
+│   ├── 10-native.ps1                 原生互操作（6 个 Add-Type 块）
+│   ├── 20-config.ps1                 配置读写 + 刷新系统代理
+│   ├── 30-proxy.ps1                  代理引擎（注册表 / PAC 服务 / 连通测试 / 自启）
+│   ├── 40-icon.ps1                   托盘图标绘制
+│   ├── 50-window.ps1                 窗口尺寸定位 / Form / WebView2 宿主 / DPI 换算
+│   ├── 60-tray.ps1                   NotifyIcon / 深色中文右键菜单
+│   ├── 70-message.ps1                WebView2 初始化 + 前端消息分发
+│   ├── 80-update.ps1                 检查更新
+│   └── 90-main.ps1                   Form 生命周期 / 消息循环 / 兜底清理
+├── lib\                              WebView2 运行时依赖（3 个 DLL，仍入库）
+├── ui\index.html                     WebView2 界面（420px 固定宽度设计）
+├── build.ps1                         打包脚本 → dist\
+├── VERSION                           版本号唯一来源
+├── app.ico                           程序图标（build.ps1 依赖）
+├── debug.bat                         带日志调试入口
 ├── LICENSE                           MIT
-├── ProxyTray.ps1                     主脚本（约 1000 行）
 └── README.md
+
+（运行时生成，不入库）
+├── dist\                             构建产物：exe / zip / sha256
+├── build\                            拼合后的中间脚本 NASProxyTray.packed.ps1
+├── ProxyTray.log                     运行日志
+├── config.json / proxy.pac          用户配置
+├── update_check.json                 检查更新节流记录
+└── .webview2\                        WebView2 用户数据
 ```
 
 ---
 
-## 主脚本 ProxyTray.ps1 结构详解
+## 架构：加载顺序只有一个来源
 
-脚本按"先环境，后业务"的顺序组织。以下按代码顺序列出主要段落。
+`ProxyTray.ps1` 只做三件事：
 
-### 启动阶段（1–200 行左右）
+1. 记下真实入口路径（`$script:LaunchScriptPath` / `$script:LaunchRoot`）
+2. 找到 `src\`，按 `Sort-Object Name` 枚举 `*.ps1`
+3. 逐个 dot-source
 
-1. **自身路径探测**：兼容 `.ps1` 直跑和 `ps2exe` 打包 exe 两种模式，分别从 `$PSCommandPath`、命令行第 0 项、进程主模块三处探测
-2. **STA 线程重开**：WinForms + OpenFileDialog 需要 STA，非 STA 时自动重启自己（用 `$env:PROXYTRAY_STA_RETRY` 防无限重启）
-3. **单实例互斥锁**：`Local\NASProxyTray_SingleInstance`，防双击开两个托盘
-4. **根目录 / 数据目录**：
-   - `$root` = exe 所在目录（只读内容：lib、ui、app.ico）
-   - `$script:DataDir` = 探测可写性，不可写则退到 `%LOCALAPPDATA%\NASProxy`
-   - **这是单 exe 打包后资源释放目录的天然位置，可复用**
-5. **日志**：遮蔽 `Write-Host`，同时写 `ProxyTray.log`，限制 512KB 自动清空
-6. **加载 DLL**：`SetDllDirectory($lib)` + `$env:PATH` 前置，然后 `Add-Type -Path` 加载两个托管 DLL，WebView2Loader.dll 靠 SetDllDirectory 找到
-7. **Win32 API**：NativeLoader（SetDllDirectory）/ NativeDrag（窗口拖动）/ NativeRound（圆角 + DWM）/ WinINet（刷新代理）/ IconNative（销毁图标）
-8. **深色菜单渲染器**：编译 C# 类 `DarkMenuRenderer`，失败则回退默认
+```powershell
+Get-ChildItem -LiteralPath $srcPath -Filter '*.ps1' |
+    Sort-Object Name |
+    ForEach-Object { . $_.FullName }
+```
 
-### 代理引擎（约 400–700 行）
+**同一个顺序同时服务两种模式**：开发时直接 dot-source，打包时 `build.ps1` 按同一顺序拼合成单文件。所以两种模式行为一致，不存在"开发能跑、打包就崩"。
+
+> ⚠️ dot-source 会让 `$PSCommandPath` / `$PSScriptRoot` 指向**模块自己**（`src\00-boot.ps1`），
+> 所以真实入口路径必须由 `ProxyTray.ps1` 用 `$script:LaunchScriptPath` 传下去。
+> 这是拆分后最容易踩的坑，已在 `00-boot.ps1` 处理。
+
+---
+
+## 各模块要点
+
+### `00-boot.ps1` — 启动地基（约 300 行，最重的一个）
+
+按执行顺序：
+
+| # | 内容 | 备注 |
+| --- | --- | --- |
+| 0 | **DPI 感知声明** | 必须在建任何窗口之前；见下方「高 DPI」 |
+| 1 | 自身路径探测 | 依次尝试 `$LaunchScriptPath` → `$PSCommandPath` → 命令行第 0 项 → 进程主模块 |
+| 2 | STA 重开 | 非 STA 时用 `$env:PROXYTRAY_STA_RETRY=1` 防无限重开；exe 与 ps1 两种重启方式 |
+| 3 | 单实例互斥 | `Local\NASProxyTray_SingleInstance`，抢不到就弹提示后 exit |
+| 4 | 根目录 / 数据目录 | 数据目录写探针文件测试可写性，不可写退到 `%LOCALAPPDATA%\NASProxy` |
+| 5 | 版本号 | `$script:AppVersionBuiltin` 常量 + 有 `VERSION` 文件则覆盖 |
+| 6 | **内嵌资源释放** | 见下方「打包」 |
+| 7 | 日志 | 覆写 `Write-Host`，同时写 `ProxyTray.log`，>512 KB 清空 |
+| 8 | 控制台探测 | `$script:HasConsole`；无控制台时**提前 return**，不当无用的转发（曾因此卡 13 秒启动） |
+| 9 | DRYRUN | `$env:PROXYTRAY_DRYRUN=1` → `$script:DryRun` |
+| 10 | `EnableVisualStyles()` | 建控件之前调用 |
+
+导出的关键变量：`$script:appSelf`、`$script:appIsExe`、`$script:DataDir`、`$script:AppVersion`、
+`$script:RuntimeDir`、`$script:UsingPacked`、`$script:DpiAwareMode`、`$script:DpiScale`、
+`$script:HasConsole`、`$script:DryRun`，以及 `$lib` / `$html` / `$udd` 三个路径。
+
+### `10-native.ps1`
+
+6 个 `Add-Type` 编译的 C# 类，按顺序：
+
+| 类 | 用途 |
+| --- | --- |
+| `NativeLoader` | `SetDllDirectory`（WebView2Loader.dll 靠它找到） |
+| `NativeDrag` | `ReleaseCapture` + `SendMessage`，实现无边框窗口拖动 |
+| `NativeRound` | 圆角：`SetWindowCornerPreference`（Win11 DWM）+ `CreateRoundRectRgn` 兜底 |
+| `WinINet` | `InternetSetOption` 刷新系统代理设置，让注册表改动立刻生效 |
+| `IconNative` | `DestroyIcon` 销毁动态生成的图标句柄 |
+| `DarkMenuRenderer` | 深色右键菜单渲染器，编译失败则 `$script:hasDarkRenderer = $false` 回退默认 |
+
+### `20-config.ps1`
+
+共享状态与配置路径：`$script:ConfigFile`、`$script:PacFile`、`$script:PacListener = $null`。
+`Update-InternetSettings`（带 DRYRUN 保护）、`Get-DefaultProxyConfig`、`Get-ProxyConfig`、`Save-ProxyConfig`。
+
+配置项：`server / port / override / mode / pacSource / pacDomains / localPacPath / remotePacUrl / autoStart / enabled`
+
+### `30-proxy.ps1` — 代理引擎
 
 | 函数 | 作用 |
 | --- | --- |
-| `Get-DefaultProxyConfig` | 返回默认配置对象（server / port / override / mode / pacSource / pacDomains / localPacPath / remotePacUrl / autoStart / enabled） |
-| `Get-ProxyConfig` | 从 `%DataDir%\config.json` 读配置，合并默认值 |
-| `Save-ProxyConfig` | 写 `config.json` |
-| `Set-GlobalProxy` | 注册表写 ProxyEnable=1 + ProxyServer + ProxyOverride |
-| `Set-PacProxy` | 启动本地 PAC HTTP 服务，注册表写 AutoConfigURL |
+| `Set-GlobalProxy` | 注册表 `ProxyEnable=1` + `ProxyServer` + `ProxyOverride` |
+| `Set-PacProxy` | 起本地 PAC HTTP 服务，写 `AutoConfigURL` |
 | `Clear-SystemProxy` | 清空注册表代理项 |
-| `Start-PacServer` | 后台 runspace 启 TcpListener，服务 `http://127.0.0.1:<随机端口>/proxy.pac` |
-| `Stop-PacServer` | 停服务 |
-| `Build-BuiltinPac` | 根据域名列表生成 PAC 内容 |
-| `Apply-ProxyConfig` | 根据 config 应用代理（全局 / PAC / 关闭） |
-| `Test-ProxyConn` | TcpClient 连接测试，返回延迟毫秒 |
-| `Set-AutoStart` / `Get-AutoStart` | 写 `Startup\NASProxy.lnk` 快捷方式（不是注册表 Run） |
+| `Start-PacServer` | `TcpListener` 服务 `http://127.0.0.1:<随机端口>/proxy.pac` |
+| `Stop-PacServer` | 停 listener 让阻塞的 `AcceptTcpClient` 醒来 → 优雅退出 |
+| `Build-BuiltinPac` | 按域名列表生成 PAC 内容 |
+| `Apply-ProxyConfig` | 按 config 应用（全局 / PAC / 关闭） |
+| `Test-ProxyConn` | `TcpClient` 连接测试，返回延迟 ms |
+| `Set-AutoStart` / `Get-AutoStart` | 写 `Startup\NASProxy.lnk`（不是注册表 Run 键） |
 
-### 托盘 + 窗口（约 700–900 行）
+> `Set-GlobalProxy` / `Set-PacProxy` / `Clear-SystemProxy` / `Set-AutoStart` 四个都会改系统，
+> 全部做了 DRYRUN 短路。
 
-- `$tray`：NotifyIcon，图标用 `New-BallIcon` 动态画圆点（灰 / 绿）
-- `$menu`：右键菜单（显示/隐藏、开发者工具、立即清除代理、复位窗口位置、退出）
-- `$form`：WinForms 无边框窗口，初始位置右下角，尺寸随 HTML 内容变化
-- **尺寸防抖**：前端上报 size 后，Timer 120ms 合并多次变化
-- **Deactivate 隐藏**：失焦 150ms 后隐藏
-- **圆角**：优先 DWM（Win11），失败退 `SetWindowRgn`
+### `40-icon.ps1`
+`New-BallIcon -Color <Color>` 动态画圆点图标（灰 = 关闭，绿 = 开启）。
 
-### WebView2 初始化 + 消息（约 900–末尾）
+### `50-window.ps1`
+工作区与尺寸基准 / Form / WebView2 宿主 / 圆角 / **尺寸防抖（120ms Timer）** / 失焦延迟隐藏（150ms）/ `DpiChanged` 处理。
+详见下方「高 DPI」。
 
-初始化成功后：
-- 关闭默认右键菜单和状态栏
-- 注入 `$injectJs`（阻止所有 CSS 动画、隐藏滚动条、`.title-bar` 拖拽、Escape 隐藏、上报尺寸）
-- 注册 `WebMessageReceived` 处理前端消息
+### `60-tray.ps1`
+NotifyIcon + 深色中文右键菜单。菜单项顺序：
+
+```
+[发现新版本 vX.Y.Z · 点击下载]   ← 默认隐藏，仅 80-update 发现新版时显示
+显示 / 隐藏窗口
+打开开发者工具
+──────────
+立即清除系统代理
+复位窗口位置
+检查更新
+──────────
+v1.2.0                          ← 灰色禁用，仅展示版本
+退出
+```
+
+菜单的 Padding 与字体都按 `$script:DpiScale` 缩放。
+
+### `70-message.ps1`
+注入 JS（禁动画、隐藏滚动条、`.title-bar` 拖拽、Escape 隐藏、上报尺寸）+ WebView2 初始化 + 消息分发。
+另注册 `NewWindowRequested`，让界面里的外链走默认浏览器打开。
+
+### `80-update.ps1`
+见下方「检查更新」。
+
+### `90-main.ps1`
+Form 生命周期、`Application.Run`、退出清理（含更新检查的 Timer 与 runspace 释放）。
 
 ---
 
 ## 前后端通信协议
 
-**前端 → 宿主**（通过 `window.chrome.webview.postMessage`，JSON 字符串）：
+**前端 → 宿主**（`window.chrome.webview.postMessage`，JSON 字符串）：
 
 | action | 参数 | 作用 |
 | --- | --- | --- |
-| `startDrag` | 无 | 拖动窗口（点 `.title-bar` 触发） |
-| `hide` | 无 | 隐藏窗口（Escape 键） |
-| `size` | `w, h` | 上报界面实际宽高 |
+| `startDrag` | — | 拖动窗口（点 `.title-bar`） |
+| `hide` | — | 隐藏窗口（Escape） |
+| `size` | `w, h` | 上报界面实际宽高（**CSS 像素**，宿主乘 DpiScale） |
 | `theme` | `dark` | 通知系统深色模式 |
-| `getConfig` | 无 | 请求配置 |
+| `getConfig` | — | 请求配置 |
 | `saveConfig` | `config` | 保存配置 |
 | `toggleProxy` | `enabled, config?` | 开关代理 |
 | `setAutoStart` | `enabled` | 切换自启动 |
-| `browseFile` | 无 | 弹文件选择框（选 PAC） |
+| `browseFile` | — | 弹文件选择框（选 PAC） |
 | `testConnection` | `server, port` | TCP 连接测试 |
-| `resetConfig` | 无 | 恢复默认 |
+| `resetConfig` | — | 恢复默认 |
 
-**宿主 → 前端**：
+**宿主 → 前端**（`PostWebMessageAsString`）：
 
-| type | 数据 | 触发时机 |
+| action | 数据 | 触发时机 |
 | --- | --- | --- |
-| `config` | `config` | getConfig / setAutoStart / resetConfig 后 |
+| `config` | `config, version` | getConfig / setAutoStart / resetConfig 后 |
 | `saved` | `ok, msg, config` | saveConfig 后 |
 | `state` | `enabled, ok, msg, mode, server, port` | toggleProxy 后 |
 | `filePicked` | `path` | 用户选完 PAC 文件 |
 | `connResult` | `ok, latency` | 连接测试返回 |
 
----
-
-## 当前问题清单（用户已确认）
-
-1. **无法打包成单个 exe**：`build.ps1` 目前只把 `app.ico` 转 Base64 注入，**没处理 `lib/` 和 `ui/`**。发布形态是 `exe + lib/ + ui/` 三个并列，体验差
-2. **4K 显示效果待优化**：用户未描述具体现象（模糊/太小/错位），需要 WorkBuddy 先问清楚再动手
-3. **逻辑可优化**：主脚本 1000 行，可按职责拆分
-4. **缺可升级架构**：目前无"检查更新"能力
+> `config` 载荷里的 **`version` 是 v1.2.0 新增的**：界面页脚的版本号由宿主下发，
+> 不再在 HTML 里写死。新增/修改协议时记得同步 `ui/index.html`。
 
 ---
 
-## 四个目标详细说明
+## 打包成单文件 exe
 
-### 目标 1：优化应用逻辑
-
-主脚本已经超过 1000 行，建议按职责拆分：
-- `core.ps1`：配置 + 代理引擎 + PAC 服务
-- `tray.ps1`：托盘 + 菜单 + 图标
-- `webview.ps1`：WebView2 宿主 + 消息处理
-- `ProxyTray.ps1`：入口，dot-source 上面三个
-
-**注意**：拆分后 `build.ps1` 的 ps2exe 打包要调整（ps2exe 只打包单个 .ps1，需要把其他文件也用 dot-source 引进来，或者全部内嵌）。
-
-### 目标 2：打包成单 exe
-
-**当前 build.ps1 逻辑**：
-1. 读 `app.ico` → Base64 → 替换 `ProxyTray.ps1` 里的 `$IconBase64`
-2. `Invoke-ps2exe` 打包
-
-**需要改成**：
-1. 读 `app.ico` + `lib/*.dll` + `ui/index.html` → 全部 Base64 放进一个 JSON
-2. 替换 `ProxyTray.ps1` 里的 `$ResourcesJson` 占位符
-3. `ProxyTray.ps1` 启动时把资源释放到 `$script:DataDir\runtime\`（脚本已有 DataDir 探测逻辑，直接复用）
-4. 用版本号做缓存标记，改资源时更新版本号触发重新释放
-5. DLL 加载路径从 `$root\lib` 改成 `$script:DataDir\runtime\lib`
-6. HTML 路径同理改成 runtime 下的
-
-**关键坑**：
-- WebView2Loader.dll 是非托管 DLL，要 `SetDllDirectory`，脚本里已有
-- exe 会膨胀到 10–15 MB（Base64 有 33% 膨胀）
-- 首次启动慢几百毫秒（解码 + 写文件），之后靠标记跳过
-- 如果用户把 exe 放到只读目录，释放目录自动退到 `%LOCALAPPDATA%`（脚本已做）
-
-### 目标 3：4K 分辨率显示优化
-
-**需要先问用户具体现象**：
-- 界面糊 / 模糊？
-- 界面元素太小？
-- 界面错位 / 显示不全？
-
-**可能的方向**：
-- WinForms 启用 Per-Monitor V2 DPI 感知：`Application.SetHighDpiMode([HighDpiMode]::PerMonitorV2)`，要在创建任何窗口前调用
-- 或用 app.manifest 声明 DPI aware
-- UI 侧用相对单位或 `clamp()` 响应系统缩放
-- WebView2 控件本身的 DPI 行为：`CoreWebView2Controller.RasterizationScale`
-
-### 目标 4：可升级架构
-
-**两种理解，需先跟用户对齐**：
-- A. 应用自身能自动升级（检查 GitHub Releases，下载新版，替换自己）
-- B. 代码结构可演进（也就是目标 1 的延伸）
-
-如果是 A，先做"检查更新 + 提示"这一层，不做静默替换。
-
----
-
-## 建议执行顺序
-
-```
-1. 优化应用逻辑（拆模块）
-   ↓ 结构清楚后
-2. 打包成单 exe
-   ↓ 打包流程变了，需要重新测
-3. 4K 显示优化
-   ↓ 视觉调完
-4. 可升级架构
-   ↓ 依赖"当前版本稳定"
+```powershell
+.\build.ps1                 # 完整流程
+.\build.ps1 -SkipZip        # 只要 exe，不打 zip
 ```
 
-理由：
-- 先拆模块，后面所有改动在新结构上做，不返工
-- 打包会改 ProxyTray.ps1（注入资源），在拆完模块后做更顺
-- 4K 调整不涉及逻辑
-- 升级架构需要稳定基线
+产物（`dist\`）：
+
+| 文件 | 说明 |
+| --- | --- |
+| `NASProxyTray.exe` | 单文件，约 **422 KB**（不是早期猜测的 10–15 MB，因为 DLL 先压成 ZIP 再 Base64） |
+| `NASProxyTray-v<版本>.zip` | 只含上面那个 exe |
+| `NASProxyTray.exe.sha256` | 校验值 |
+
+`build.ps1` 六步：
+
+1. 读 `VERSION` → 校验格式 → 换算成四段式程序集版本
+2. **按文件名顺序拼合 `src\*.ps1`**，逐条剥掉 BOM，只保留一份
+3. `lib\*.dll` + `ui\index.html` → ZIP → Base64，内嵌为 `$script:PackedResources`
+4. 拼上文件头，把 `$script:AppVersionBuiltin` 改写成 `VERSION` 的值（**要求恰好命中 1 处**，否则报错）
+5. `Invoke-ps2exe -noConsole -STA -x64`，带图标与版本信息
+6. 算 SHA256，`Compress-Archive` 打 zip
+
+> **`build.ps1` 绝不修改任何源文件。** 旧版会把图标 Base64 写回 `ProxyTray.ps1`，现在不会了。
+
+**为什么必须 `-x64`**：`lib\WebView2Loader.dll` 是原生 64 位，32 位进程加载不了。
+
+**为什么不用 `-DPIAware` / `-winFormsDPIAware`**：那会把 DPI 感知写进 exe 清单，
+运行时反而无法升级到 Per-Monitor V2。DPI 由 `00-boot.ps1` 在运行时声明。
+
+### 运行时资源释放
+
+exe 启动时若 `$script:PackedResources` 存在且同级目录下没有 `lib\`，就：
+
+1. 解到 `<数据目录>\runtime\.tmp-<guid>\`
+2. 逐条写字节（**不走 `Expand-Archive`**，避免给 DLL 打上「来自 Internet」标记）
+3. 写 `.ok` 标记（内容是版本号）
+4. 整体 `Move-Item` 改名成 `<数据目录>\runtime\<版本>\`
+
+下次启动看到 `.ok` 直接复用。**先临时目录再改名**，避免中途失败留下半个残缺目录。
+失败时 `$script:RuntimeDir` 回退到根目录。
 
 ---
 
-## 测试环境
+## 高 DPI（4K 清晰渲染）
 
-- Windows 11 Build 26200
-- PowerShell 5.1（没有 pwsh）
-- WebView2 Runtime 已装 153.0.4234.32
-- ps2exe 未装，`build.ps1` 会自动装
-- 首次跑前需：`Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force`
+三层改动，缺一不可：
+
+**1. 进程级 DPI 感知**（`00-boot.ps1`，建窗口之前）
+
+```powershell
+SetProcessDpiAwarenessContext(-4)   # PER_MONITOR_AWARE_V2
+  ↓ 失败
+SetProcessDpiAwareness(2)           # Per-Monitor
+  ↓ 失败
+SetProcessDPIAware()                # System
+```
+
+不声明的话进程是 DPI-unaware 的，Windows 会先把整个界面按 96 DPI 光栅化成位图，
+再整体拉伸到物理像素 —— 4K 上看着就是糊的。声明之后由本进程按真实 DPI 自己渲染。
+
+**2. 窗口几何按 DpiScale 换算**（`50-window.ps1`）
+
+```powershell
+$null = $form.Handle                       # ★ 关键
+$dpi = [int]$form.DeviceDpi
+if ($dpi -le 96) { $dpi = [NativeDpi.Api]::GetDpiForSystem() }
+$script:DpiScale = [Math]::Round(($dpi / 96.0) * 4) / 4   # 归到 0.25 的倍数
+```
+
+> ★ **句柄没建出来之前 `Form.DeviceDpi` 恒为 96**。不先 `$null = $form.Handle` 强制建句柄，
+> 在 200% 缩放的机器上会算出 `scale=1`，界面瞬间缩成一半。这是本轮调试花时间最多的坑。
+> 另加 `GetDpiForSystem()` 兜底。
+
+`Update-DpiMetrics()` 把 `margin(12)` / `initW(420)` / `initH(500)` / `cornerRadius(24)` 都乘上 scale。
+尺寸防抖的 `slack` 也乘 scale。另外注册了 `DpiChanged`，拖到另一块显示器或改缩放时重新计算并复位。
+
+**3. 前端给的是 CSS 像素，宿主给的是设备像素**
+
+`size` 消息上来的是 CSS px，宿主乘 `$script:DpiScale` 后再 `SetBounds`。两边基准必须分清。
+
+**实测**：本机 3200×2000 @200% → `dpiScale=2`，初始化窗口 `840x1000` 设备像素，
+日志 `dpiAware=PerMonitorV2`，界面清晰。
+
+---
+
+## 检查更新
+
+设计取向是**只做「发现 + 提示 + 用默认浏览器打开下载页」，不自动替换自己**：
+未签名 exe 自替换容易被 SmartScreen 和杀软拦住，得不偿失。
+
+| 项 | 值 |
+| --- | --- |
+| 数据源 | `https://api.github.com/repos/ye1225/NASProxyTray/releases/latest` |
+| 触发 | 启动后延迟 5 秒静默检查 + 托盘菜单「检查更新」手动触发 |
+| 节流 | 24 小时（记录在 `update_check.json`） |
+| 超时 | 10 秒 |
+| 实现 | 独立 runspace（MTA）跑网络请求，主线程 400ms Timer 轮询 `IsCompleted` |
+| 提示 | 托盘气泡 + 菜单浮现「发现新版本 vX.Y.Z · 点击下载」 |
+| 点击 | `Start-Process` 打开 Release 页 |
+
+TLS 强制 1.2（PS 5.1 默认可能还是 1.0/1.1）。
+
+调过版本比较：`Compare-AppVersion` 用 `[version]` 解析，容忍 `v` 前缀，异常时返回 0（视为相同）。
+
+---
+
+## 环境事实与踩过的坑
+
+**本机环境**（这些都影响命令怎么写）：
+
+| 项 | 值 |
+| --- | --- |
+| 系统 | Windows 11 Build 26200 |
+| 屏幕 | **3200×2000 @ 200% 缩放**（有效 1600×1000） |
+| PowerShell | **5.1.19041.6456**，没有 `pwsh` |
+| WebView2 Runtime | 已装，运行时上报浏览器版本 **145.0.3800.97** |
+| ps2exe | 1.0.18（`build.ps1` 会自动装到 CurrentUser） |
+| git | 2.55.0.windows.5 |
+| `gh` CLI | ❌ **没装**（影响发布流程，见下） |
+
+**坑清单**：
+
+1. **`.ps1` 必须带 UTF-8 BOM**。PS 5.1 读无 BOM 的 `.ps1` 会按 GBK 解码，中文全乱、语法直接报错。
+   仓库里的 `src\*.ps1` 与 `ProxyTray.ps1` 都是带 BOM 的，新建文件时注意。
+2. **本仓库文件是 CRLF**。判断行尾别用 `grep -c $'\r'`（会误报 0），用 Python `re.split(r'(?<=\n)')` 更可靠。
+3. **git 分支名不能带 `/`**。本环境写不了嵌套的 `refs/heads/refactor/` 目录，
+   `git checkout -b refactor/v1.2.0` 会得到一个 unborn branch。用扁平名（`refactor-1.2.0`）。
+4. **别用 `Remove-Item` 删构建产物**。本机有「安全删除（移到回收站）」包装器会接管 `Remove-Item`，
+   回收站不可用时直接失败。改用 `[System.IO.File]::Delete()`。
+5. **exe 里 `$PSCommandPath` 为空**，路径探测必须多路兜底。
+6. **dot-source 后 `$PSScriptRoot` 指向模块自身**，真实入口靠 `$script:LaunchScriptPath` 传。
+7. **`-noConsole` 后 `Write-Host` 转发会拖慢启动**（曾出现 13 秒启动）。用 `[Console]::WindowWidth` 探测有无控制台。
+8. **从 Bash 调 `powershell` 会被安全策略拦截**，本地执行 PowerShell 请走 PowerShell 工具或直接双击脚本。
+9. 本环境的 Git Bash 缺 `dirname` / `ls`，纯 shell 命令前先 `export PATH="/usr/bin:/bin:$PATH"`。
+
+---
+
+## 测试与调试
+
+**DRYRUN 空转开关（跑测试必开）**
+
+```powershell
+$env:PROXYTRAY_DRYRUN = '1'
+.\ProxyTray.ps1
+```
+
+所有会改动系统的动作（写注册表 / 清系统代理 / 动开机自启）都只写日志、不真执行。
+跑完记得检查 `HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings` 没被动过。
+
+**语法自检**（不运行，只解析）：
+
+```powershell
+$errs = $null
+[System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$errs)
+```
+
+**日志**：`ProxyTray.log`（数据目录下），超过 512 KB 自动清空。
+正常启动的日志长这样：
+
+```
+[ProxyTray] mode=PS1 self=...\ProxyTray.ps1
+[ProxyTray] root=...  data=...
+[ProxyTray] apartment=STA
+[ProxyTray] version=1.2.0  packed=False  console=True
+[ProxyTray] content=...          ← packed=True 时这里是 runtime\<版本>\
+[ProxyTray] dpiAware=PerMonitorV2
+[ProxyTray] load 10-native.ps1   ← 依次 load 到 90-main.ps1
+[ProxyTray] dpiScale=2  initSize=840x1000
+[ProxyTray] ready. window @ (2336,896) size 840x1000
+[ProxyTray] INIT OK, browser = 145.0.3800.97
+[ProxyTray] 已是最新版本 v1.2.0
+```
+
+**单文件 exe 干净目录验证**：把 exe 单独拷到一个空目录再跑，
+确认日志里出现 `packed=True`、`content=<数据目录>\runtime\1.2.0`、`INIT OK`，
+且 `runtime\1.2.0\.ok` 已生成。
+
+---
+
+## 发布
+
+Release 用于分发 exe。**当前卡在工具上：本机没装 `gh` CLI。**三条路：
+
+| 方案 | 说明 |
+| --- | --- |
+| A. 装 `gh` + 授权 | 一次性 `winget install GitHub.cli` 然后 `gh auth login`，之后都可命令行发 |
+| B. 用户给 PAT | 带 `repo` 权限的 Personal Access Token，走 GitHub REST API 上传 |
+| C. 手动发 | 我产出 exe + zip + Release 文案，用户在网页上点一下 |
+
+远程仓库已有 v1.1.0 的 Release。v1.2.0 的 Release 尚未发布。
 
 ---
 
 ## 工作流
 
-- 主分支 `main`（曾叫 master，已改名）
-- `.gitignore` 已排除：`*.exe`、`.vscode/`、`.idea/`、`*.tmp`、`*.log`、`config.json`
-- `app.ico` **保留**（build.ps1 依赖它）
-- Release 已发 v1.1.0，exe 通过 GitHub Release 分发
-- 日常命令：
-  ```
-  git pull --rebase origin main   # 开工前
-  git add . && git commit -m "..." && git push   # 收工
-  ```
+```bash
+git pull --rebase origin main                 # 开工前
+git add . && git commit -m "..." && git push  # 收工
+```
+
+`.gitignore` 已排除：`dist/`、`build/`、`*.exe`、`*.log`、`config.json`、`.webview2/`、
+`update_check.json`、`.workbuddy/`。
+
+**注意 `lib/` 下的 3 个 DLL 是入库的**（`.gitignore` 刻意没写 `*.dll`）。
+`app.ico` 也保留，`build.ps1` 依赖它。
 
 ---
 
-## 运行调试
+## 四个目标的完成情况
 
-**启动**：
-```powershell
-powershell -ExecutionPolicy Bypass -File .\ProxyTray.ps1
-```
-或双击 `debug.bat`。
+| 目标 | 状态 | 落点 |
+| --- | --- | --- |
+| 1. 优化应用逻辑（拆模块） | ✅ | `src\` 下 10 个模块 + 薄入口，原 1366 行单文件已拆完 |
+| 2. 打包成单 exe | ✅ | `build.ps1` 重写；内嵌资源运行时释放；422 KB 单文件 |
+| 3. 4K 显示优化 | ✅ | Per-Monitor V2 + DpiScale 几何换算，本机 200% 缩放下清晰 |
+| 4. 可升级架构 | ✅ | `80-update.ps1`：静默检查 + 气泡提示 + 菜单项，不自动替换 |
 
-**日志位置**（脚本用 Write-Host 覆写，输出到文件）：
-- 优先：`D:\Desktop\NASProxyTray\ProxyTray.log`
-- 兜底：`%LOCALAPPDATA%\NASProxy\ProxyTray.log`
+### 后续可做（未排期）
 
-**构建 exe**：
-```powershell
-powershell -ExecutionPolicy Bypass -File .\build.ps1
-```
-产物：`NASProxyTray.exe`（当前形态还需要 `lib/` 和 `ui/` 在旁边）
+- **发 v1.2.0 Release**（等上面发布方案定下来）
+- 更新检查目前只比版本号，可以考虑读 Release 的 body 做更新说明展示
+- `ui/index.html` 是 420px 固定宽度设计，若要做真·响应式需另开工作量
+- 界面目前仍是深色单一主题（`theme` 消息已有，但没接亮色实现）
 
 ---
 
-## 第一句话
+## 给接手者的第一句话
 
-请先读以下文件理解现状，然后给一个执行计划，确认后再动手：
+结构已经理清、四个目标都落地了。上手建议顺序：
 
-1. `README.md`
-2. `HANDOFF.md`（本文件）
-3. `ProxyTray.ps1`
-4. `build.ps1`
-5. `ui/index.html`
+1. 读 `README.md`（面向用户） + 本文件（面向开发者）
+2. 读 `ProxyTray.ps1`（45 行，一眼看完） → 再按 `src\` 文件名顺序读下去
+3. 想改代码：**新文件记得带 UTF-8 BOM**，改完跑一遍 DRYRUN 验证
+4. 改完提交，若要出包就跑 `build.ps1`，然后按「单文件 exe 干净目录验证」测一遍
 
-确认计划后再改代码。改代码时优先小步验证，每完成一个子目标就提交一次。
+> 主要改动集中在 `00-boot.ps1`（DPI + 资源释放）、`80-update.ps1`（新增）、
+> `build.ps1`（重写）、`50-window.ps1`（DPI 换算）。
