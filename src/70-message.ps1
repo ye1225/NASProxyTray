@@ -194,6 +194,7 @@ $webView.add_CoreWebView2InitializationCompleted([System.EventHandler[Microsoft.
                 'saveConfig' {
                     $ui = $obj.config
                     if ($null -eq $ui) { return }
+                    $quiet = [bool]$obj.quiet      # 自动保存：成功时不弹 toast，只更新底部状态条
                     $cfg = Get-ProxyConfig
                     foreach ($k in @('server','port','override','mode','pacSource','builtinPolicy','pacDomains','localPacPath','remotePacUrl','pacRewrite')) {
                         if ($ui.PSObject.Properties.Name -contains $k) {
@@ -217,6 +218,7 @@ $webView.add_CoreWebView2InitializationCompleted([System.EventHandler[Microsoft.
                         $r = Apply-ProxyConfig -Config $cfg
                         $msgText = $r.msg; $ok = $r.ok
                     }
+                    if ($quiet -and $ok) { $msgText = '' }
                     $payload = @{ action = 'saved'; ok = $ok; msg = $msgText; config = $cfg } | ConvertTo-Json -Depth 6 -Compress
                     $s2.PostWebMessageAsString($payload)
                 }
@@ -259,6 +261,10 @@ $webView.add_CoreWebView2InitializationCompleted([System.EventHandler[Microsoft.
                     $script:CurrentConfig = $cfg
                     $payload = @{ action = 'config'; config = $cfg; version = $script:AppVersion; chinaCount = @($script:ChinaDirectDomains).Count } | ConvertTo-Json -Depth 6 -Compress
                     $s2.PostWebMessageAsString($payload)
+                }
+
+                'uiError' {
+                    Write-Host ("[UI-ERROR] {0} @ {1}:{2}" -f ([string]$obj.msg), ([string]$obj.src), ([string]$obj.line))
                 }
 
                 'browseFile' {

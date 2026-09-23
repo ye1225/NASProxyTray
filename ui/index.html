@@ -8,6 +8,7 @@
     --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --text-secondary: #86868b;
     --border: #e5e5ea; --accent: #007aff; --accent-hover: #0066d6;
     --green: #34c759; --red: #ff3b30; --accent-soft: rgba(0,122,255,0.08);
+    --amber: #c98a00;
     --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04);
     --shadow-hover: 0 2px 8px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06);
 }
@@ -16,6 +17,7 @@
         --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --text-secondary: #98989d;
         --border: #38383a; --accent: #0a84ff; --accent-hover: #409cff;
         --green: #30d158; --red: #ff453a; --accent-soft: rgba(10,132,255,0.15);
+        --amber: #e0a52c;
         --shadow: 0 1px 3px rgba(0,0,0,0.3), 0 4px 12px rgba(0,0,0,0.2);
         --shadow-hover: 0 2px 8px rgba(0,0,0,0.4), 0 8px 24px rgba(0,0,0,0.3);
     }
@@ -405,34 +407,27 @@ textarea {
 .toggle.on { background: var(--green); }
 .toggle.on::after { transform: translateX(17px); }
 
-.save-btn {
-    width: 100%; padding: 11px;
-    background: var(--accent); color: white;
-    border: none; border-radius: 10px;
-    font-family: inherit; font-size: 13px; font-weight: 500;
-    cursor: pointer; transition: all 0.25s ease;
-    margin-top: 4px; letter-spacing: 0.3px;
-    position: relative;
+/* ---------- 自动保存状态条（取代原「保存设置」按钮） ---------- */
+.autosave-bar {
+    display: flex; align-items: center; justify-content: center; gap: 7px;
+    margin-top: 4px; padding: 8px 10px; border-radius: 10px;
+    font-size: 11.5px; letter-spacing: 0.2px;
+    color: var(--text-secondary); background: transparent;
+    transition: color 0.25s ease, background 0.25s ease;
+    min-height: 33px;
 }
-.save-btn:hover {
-    background: var(--accent-hover);
-    box-shadow: 0 4px 14px rgba(0, 122, 255, 0.3);
+.autosave-bar .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor; opacity: 0.45;
+    flex-shrink: 0; transition: all 0.25s ease;
 }
-.save-btn:active { transform: scale(0.99); }
-.save-btn:disabled { cursor: wait; opacity: 0.9; }
-.save-btn.dirty::after {
-    content: '';
-    display: inline-block;
-    width: 5px; height: 5px; border-radius: 50%;
-    background: white; margin-left: 6px; margin-bottom: 2px;
-    animation: dirtyBlink 1.5s ease-in-out infinite;
-}
-@keyframes dirtyBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-.save-btn.saving { background: var(--accent-hover); }
-.save-btn.saved {
-    background: var(--green);
-    box-shadow: 0 4px 14px rgba(52, 199, 89, 0.3);
-}
+.autosave-bar.pending { color: var(--amber); background: rgba(201,138,0,0.10); }
+.autosave-bar.pending .dot { opacity: 1; animation: dotBlink 1.1s ease-in-out infinite; }
+.autosave-bar.ok { color: var(--green); background: rgba(52,199,89,0.10); }
+.autosave-bar.ok .dot { opacity: 1; }
+.autosave-bar.err { color: var(--red); background: rgba(255,59,48,0.10); }
+.autosave-bar.err .dot { opacity: 1; }
+@keyframes dotBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
 
 .footer {
     display: flex; align-items: center; justify-content: space-between;
@@ -461,36 +456,6 @@ textarea {
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .toast.success { border-color: var(--green); color: var(--green); }
 .toast.error { border-color: var(--red); color: var(--red); }
-
-.modal-overlay {
-    position: fixed; inset: 0;
-    background: rgba(0,0,0,0.35);
-    display: flex; align-items: center; justify-content: center;
-    opacity: 0; pointer-events: none;
-    transition: opacity 0.2s ease;
-    z-index: 200;
-}
-.modal-overlay.show { opacity: 1; pointer-events: auto; }
-.modal {
-    background: var(--card);
-    border-radius: 14px; padding: 20px; width: 300px;
-    box-shadow: 0 12px 40px rgba(0,0,0,0.25);
-    transform: scale(0.95);
-    transition: transform 0.2s ease;
-}
-.modal-overlay.show .modal { transform: scale(1); }
-.modal-title { font-size: 14px; font-weight: 600; margin-bottom: 8px; letter-spacing: 0.2px; }
-.modal-text { font-size: 12px; color: var(--text-secondary); line-height: 1.55; margin-bottom: 18px; }
-.modal-actions { display: flex; gap: 8px; }
-.modal-btn {
-    flex: 1; padding: 9px; border-radius: 9px;
-    font-family: inherit; font-size: 12.5px; font-weight: 500;
-    cursor: pointer; transition: all 0.2s ease; border: none;
-}
-.modal-btn.cancel { background: var(--bg); color: var(--text); border: 1.5px solid var(--border); }
-.modal-btn.cancel:hover { border-color: var(--text-secondary); }
-.modal-btn.confirm { background: var(--red); color: white; }
-.modal-btn.confirm:hover { filter: brightness(0.95); }
 </style>
 </head>
 <body>
@@ -638,7 +603,10 @@ textarea {
             </div>
         </div>
 
-        <button class="save-btn" id="saveBtn">保存设置</button>
+        <div class="autosave-bar" id="autosaveBar">
+            <span class="dot"></span>
+            <span id="autosaveText">更改会自动保存</span>
+        </div>
     </div>
 
     <div class="footer">
@@ -648,17 +616,6 @@ textarea {
     </div>
 
     <div class="toast" id="toast"></div>
-
-    <div class="modal-overlay" id="closeModal">
-        <div class="modal">
-            <div class="modal-title">有未保存的更改</div>
-            <div class="modal-text">你修改了设置但还没保存，直接关闭会丢失这些更改。</div>
-            <div class="modal-actions">
-                <button class="modal-btn cancel" id="modalCancel">返回</button>
-                <button class="modal-btn confirm" id="modalConfirm">不保存关闭</button>
-            </div>
-        </div>
-    </div>
 
 <script>
 const DEFAULTS = {
@@ -676,6 +633,10 @@ let currentPacSource = 'builtin';
 let builtinPolicy = 'direct-list';
 let dirty = false;
 let connTestTimer = null;
+let saveTimer = null;         // 自动保存防抖
+let saveInFlight = false;     // 已发出 saveConfig、等待后端回执
+let lastSavedAt = '';         // 最近一次保存成功的时间
+let isConnected = !!(window.chrome && window.chrome.webview);
 
 const switchBtn       = document.getElementById('switchBtn');
 const switchIcon      = document.getElementById('switchIcon');
@@ -687,7 +648,8 @@ const badgeText       = document.getElementById('badgeText');
 const serverInput     = document.getElementById('server');
 const portInput       = document.getElementById('port');
 const overrideInput   = document.getElementById('override');
-const saveBtn         = document.getElementById('saveBtn');
+const autosaveBar     = document.getElementById('autosaveBar');
+const autosaveText    = document.getElementById('autosaveText');
 const resetBtn        = document.getElementById('resetBtn');
 const toast           = document.getElementById('toast');
 const advToggle       = document.getElementById('advancedToggle');
@@ -711,9 +673,6 @@ const pacRewriteToggle= document.getElementById('pacRewriteToggle');
 const pacRewriteHint  = document.getElementById('pacRewriteHint');
 const connInline      = document.getElementById('connInline');
 const connText        = document.getElementById('connText');
-const closeModal      = document.getElementById('closeModal');
-const modalCancel     = document.getElementById('modalCancel');
-const modalConfirm    = document.getElementById('modalConfirm');
 
 // ---------- 与 PS 后端的桥 ----------
 function postPS(action, data) {
@@ -789,11 +748,73 @@ function updateAdvancedHint() {
     advToggle.classList.toggle('has-custom', customOverride || customStart || customPac);
 }
 
+// ---------- 自动保存 ----------
+// 设计：UI 上不再有「保存」按钮。任何改动都会在停顿后自动落盘；
+// 关闭代理状态下只存配置，开启状态下顺带重新应用（后端 saveConfig 负责）。
+const SAVE_DEBOUNCE = 600;
+
+function setAutosaveBar(state, text) {
+    autosaveBar.className = 'autosave-bar' + (state ? ' ' + state : '');
+    autosaveText.textContent = text;
+}
+
+function nowHM() {
+    const d = new Date();
+    return d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+// 校验当前表单，返回 { ok, error }。校验不过就不落盘，避免把半截地址写进配置。
+function validateConfig() {
+    const server = serverInput.value.trim();
+    const port = portInput.value.trim();
+    if (!server) return { ok: false, error: '代理服务器不能为空' };
+    if (/[\s]/.test(server)) return { ok: false, error: '代理服务器不能含空格' };
+    const p = parseInt(port, 10);
+    if (!port || isNaN(p) || p < 1 || p > 65535) return { ok: false, error: '端口必须是 1-65535' };
+    if (currentMode === 'smart') {
+        if (currentPacSource === 'local' && !localPacPath.value.trim()) {
+            return { ok: false, error: '智能分流需先选择 PAC 文件' };
+        }
+        if (currentPacSource === 'remote' && !remotePacUrl.value.trim()) {
+            return { ok: false, error: '智能分流需填写 PAC 文件 URL' };
+        }
+    }
+    return { ok: true, error: '' };
+}
+
+function flushSave() {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    if (!dirty || saveInFlight) return;
+    if (!isConnected) { setAutosaveBar('err', '未连接后端，无法保存'); return; }
+
+    const v = validateConfig();
+    if (!v.ok) { setAutosaveBar('err', v.error + '，未保存'); return; }
+
+    saveInFlight = true;
+    setAutosaveBar('pending', '保存中…');
+    const sent = postPS('saveConfig', { config: collectConfig(), quiet: true });
+    if (!sent) {
+        saveInFlight = false;
+        setAutosaveBar('err', '保存失败：未连接后端');
+    }
+}
+
+function scheduleSave(delay) {
+    dirty = true;
+    setAutosaveBar('pending', '正在保存…');
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(flushSave, delay === undefined ? SAVE_DEBOUNCE : delay);
+}
+
 function markDirty() {
-    if (!dirty) { dirty = true; saveBtn.classList.add('dirty'); }
+    dirty = true;
+    scheduleSave();
 }
 function clearDirty() {
-    dirty = false; saveBtn.classList.remove('dirty');
+    dirty = false;
+    clearTimeout(saveTimer);
+    saveTimer = null;
 }
 function modeLabel() { return currentMode === 'global' ? '全局代理' : '智能分流'; }
 
@@ -898,6 +919,7 @@ function applyConfig(cfg) {
 function handlePSMessage(e) {
     let msg;
     try { msg = JSON.parse(e.data); } catch { return; }
+    isConnected = true;
 
     switch (msg.action) {
         case 'config':
@@ -916,17 +938,21 @@ function handlePSMessage(e) {
             break;
 
         case 'saved':
-            saveBtn.classList.remove('saving');
-            saveBtn.classList.add('saved');
-            saveBtn.textContent = '已保存 ✓';
-            clearDirty();
-            setTimeout(() => {
-                saveBtn.classList.remove('saved');
-                saveBtn.textContent = '保存设置';
-                saveBtn.disabled = false;
-            }, 1200);
-            if (msg.config) applyConfig(msg.config);
-            showToast(msg.msg || '设置已保存', msg.ok ? 'success' : 'error');
+            saveInFlight = false;
+            if (msg.ok === false) {
+                // 配置本身已落盘，失败的是「应用」这一步（比如代理不可达）
+                clearDirty();
+                setAutosaveBar('err', msg.msg || '应用失败');
+                break;
+            }
+            lastSavedAt = nowHM();
+            setAutosaveBar('ok', '已自动保存 ' + lastSavedAt);
+            if (dirty) {
+                // 保存期间用户又改了 → 立刻补一次，别把改动晾着
+                flushSave();
+            } else if (msg.config) {
+                applyConfig(msg.config);   // 回写后端规整后的值
+            }
             break;
 
         case 'toast':
@@ -943,7 +969,6 @@ function handlePSMessage(e) {
                 localPacPath.value = msg.path;
                 markDirty();
                 updateAdvancedHint();
-                showToast('已选择 PAC 文件', 'success');
             } else {
                 showToast('已取消选择');
             }
@@ -1050,54 +1075,40 @@ advToggle.addEventListener('click', () => {
     advPanel.classList.toggle('expanded');
 });
 
-saveBtn.addEventListener('click', () => {
-    const server = serverInput.value.trim();
-    const port = portInput.value.trim();
-    if (!server) { showToast('代理服务器不能为空', 'error'); return; }
-    const p = parseInt(port, 10);
-    if (!port || isNaN(p) || p < 1 || p > 65535) { showToast('端口必须是 1-65535', 'error'); return; }
-    if (currentMode === 'smart') {
-        if (currentPacSource === 'local' && !localPacPath.value.trim()) {
-            showToast('请先选择 PAC 文件', 'error'); return;
-        }
-        if (currentPacSource === 'remote' && !remotePacUrl.value.trim()) {
-            showToast('请填写 PAC 文件 URL', 'error'); return;
-        }
-    }
-
-    saveBtn.classList.add('saving');
-    saveBtn.textContent = '保存中...';
-    saveBtn.disabled = true;
-
-    const sent = postPS('saveConfig', { config: collectConfig() });
-    if (!sent) {
-        saveBtn.classList.remove('saving');
-        saveBtn.textContent = '保存设置';
-        saveBtn.disabled = false;
-        showToast('保存失败：未连接后端', 'error');
-    }
-});
-
 resetBtn.addEventListener('click', () => { postPS('resetConfig'); });
 
+// Ctrl/Cmd+S = 立即保存（正常情况用不到，防手快的）
 document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
-        if (!saveBtn.disabled) saveBtn.click();
+        flushSave();
     }
 });
 
-modalCancel.addEventListener('click', () => closeModal.classList.remove('show'));
-modalConfirm.addEventListener('click', () => {
-    closeModal.classList.remove('show');
-    clearDirty();
+// 前端异常回传后端，写进 ProxyTray.log（无 devtools 时唯一的排查线索）
+window.addEventListener('error', (e) => {
+    try {
+        postPS('uiError', {
+            msg: String(e.message || ''),
+            src: String(e.filename || ''),
+            line: e.lineno || 0
+        });
+    } catch (_) { }
 });
+
+// 窗口失焦 / 隐藏前把待保存的改动落盘，避免防抖窗口内关窗丢改动
+window.addEventListener('blur', () => { if (dirty) flushSave(); });
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && dirty) flushSave();
+});
+window.addEventListener('beforeunload', () => { if (dirty) flushSave(); });
 
 // ---------- 初始化 ----------
 proxyDomains.value   = DEFAULTS.domains;
 overrideInput.value  = DEFAULTS.override;
 updateDomainCount();
 updateUI();
+setAutosaveBar('', '更改会自动保存');
 
 // 向 PS 要当前配置
 postPS('getConfig');

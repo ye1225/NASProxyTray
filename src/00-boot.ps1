@@ -177,7 +177,7 @@ if ($script:appIsExe -and ($script:DataDir -ine $root)) {
 # 版本号：VERSION 文件是唯一来源。
 # 单文件 exe 里没有 VERSION 文件，build.ps1 会把下面这行常量改写成 VERSION 的内容。
 # ---------------------------------------------------------------
-$script:AppVersionBuiltin = '1.2.4'
+$script:AppVersionBuiltin = '1.2.5'
 $script:AppVersion = $script:AppVersionBuiltin
 try {
     $verFile = Join-Path $root 'VERSION'

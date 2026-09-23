@@ -1,7 +1,7 @@
 ﻿# NASProxyTray · 交接文档
 
 > 交接给下一个接手的人（或 AI）。
-> **当前状态：v1.2.4 已发布（开启态对勾图标放大到与电源图标一致）。**
+> **当前状态：v1.2.5 已发布（取消保存按钮，改为自动保存）。**
 
 ---
 
@@ -14,7 +14,7 @@ Windows 托盘工具，一键切换系统代理指向 NAS，支持全局代理�
 | --- | --- |
 | 仓库 | https://github.com/ye1225/NASProxyTray |
 | 本地路径 | `D:\Desktop\NASProxyTray` |
-| 当前版本 | **v1.2.4**（唯一版本源：仓库根目录 `VERSION` 文件） |
+| 当前版本 | **v1.2.5**（唯一版本源：仓库根目录 `VERSION` 文件） |
 | 主分支 | `main` |
 | 运行环境 | Windows 10 1809+ / Windows 11 + WebView2 Runtime |
 | 发布形态 | **单个 `NASProxyTray.exe`**（v1.2.0 起，不必再带 `lib\` 和 `ui\`） |
@@ -281,12 +281,13 @@ Form 生命周期、`Application.Run`、退出清理（含更新检查的 Timer 
 | `size` | `w, h` | 上报界面实际宽高（**CSS 像素**，宿主乘 DpiScale） |
 | `theme` | `dark` | 通知系统深色模式 |
 | `getConfig` | — | 请求配置 |
-| `saveConfig` | `config` | 保存配置 |
+| `saveConfig` | `config, quiet?` | 保存配置（`quiet=true` 时成功不弹 toast，自动保存用） |
 | `toggleProxy` | `enabled, config?` | 开关代理 |
 | `setAutoStart` | `enabled` | 切换自启动 |
 | `browseFile` | — | 弹文件选择框（选 PAC） |
 | `testConnection` | `server, port` | TCP 连接测试 |
 | `resetConfig` | — | 恢复默认 |
+| `uiError` | `msg, src, line` | 前端 JS 异常，宿主写 `[UI-ERROR]` 进日志 |
 
 **宿主 → 前端**（`PostWebMessageAsString`）：
 
@@ -300,6 +301,17 @@ Form 生命周期、`Application.Run`、退出清理（含更新检查的 Timer 
 
 > `config` 载荷里的 **`version` 是 v1.2.0 新增的**：界面页脚的版本号由宿主下发，
 > 不再在 HTML 里写死。新增/修改协议时记得同步 `ui/index.html`。
+
+### 自动保存（v1.2.5 起，界面不再有「保存设置」按钮）
+
+- 任何改动走 600 ms 防抖，到点自动发 `saveConfig`；窗口失焦 / 隐藏 / 卸载前立即补发
+- **顺序敏感**：`saved` 回执只在 `dirty === false` 时才 `applyConfig()` 回写表单，
+  否则会把用户正在输入的值覆盖掉；若回执到达时 `dirty` 仍为 true，说明期间又改了，
+  立即再 `flushSave()` 一次
+- **校验在前**：`validateConfig()` 不过（地址空 / 端口越界 / 智能分流缺 PAC 文件）
+  就**不发请求**，配置文件保留上次有效值，底部状态条转红
+- 相关元素：`#autosaveBar`（三态 `.pending / .ok / .err`）、`#autosaveText`；
+  原 `.save-btn` 样式与「未保存的更改」弹窗已删除（弹窗代码此前从未被触发过）
 
 ---
 
