@@ -38,6 +38,7 @@ function Get-DefaultProxyConfig {
         pacDomains   = $domains
         localPacPath = ''
         remotePacUrl = ''
+        pacRewrite   = $true
         autoStart    = $false
         enabled      = $false
     }
@@ -48,7 +49,7 @@ function Get-ProxyConfig {
     if (Test-Path $script:ConfigFile) {
         try {
             $raw = Get-Content $script:ConfigFile -Raw -Encoding UTF8 | ConvertFrom-Json
-            foreach ($k in @('server','port','override','mode','pacSource','pacDomains','localPacPath','remotePacUrl','autoStart','enabled')) {
+            foreach ($k in @('server','port','override','mode','pacSource','pacDomains','localPacPath','remotePacUrl','pacRewrite','autoStart','enabled')) {
                 if ($raw.PSObject.Properties.Name -contains $k) {
                     $cfg.PSObject.Properties[$k].Value = $raw.$k
                 }

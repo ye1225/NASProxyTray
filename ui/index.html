@@ -356,6 +356,14 @@ textarea {
 .pac-hint a { color: var(--accent); text-decoration: none; }
 .pac-hint a:hover { text-decoration: underline; }
 
+.pac-rewrite-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; padding-top: 10px; border-top: 1px solid var(--border);
+}
+.pac-rewrite-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pac-rewrite-row .pac-hint { padding: 0; }
+.pac-rewrite-row .pac-hint .to { color: var(--accent); font-weight: 500; }
+
 .auto-start-row {
     display: flex; align-items: center; justify-content: space-between;
     padding-top: 10px; border-top: 1px solid var(--border);
@@ -563,17 +571,26 @@ textarea {
                             <button class="browse-btn" id="browsePac" type="button">浏览</button>
                         </div>
                         <div class="pac-hint">
-                            推荐：<a href="https://github.com/gfwlist/gfwlist" target="_blank">gfwlist</a> ·
+                            推荐：<a href="https://github.com/zhiyi7/gfw-pac" target="_blank">gfw-pac</a> ·
+                            <a href="https://github.com/gfwlist/gfwlist" target="_blank">gfwlist</a> ·
                             <a href="https://github.com/ACL4SSR/ACL4SSR" target="_blank">ACL4SSR</a> ·
                             <a href="https://github.com/Loyalsoldier/domain-list-custom" target="_blank">Loyalsoldier</a>
                         </div>
                     </div>
                     <div class="pac-panel" data-panel="remote">
                         <label class="sub-label">PAC 文件 URL</label>
-                        <input type="text" id="remotePacUrl" placeholder="https://raw.githubusercontent.com/.../gfwlist.pac">
+                        <input type="text" id="remotePacUrl" placeholder="https://raw.githubusercontent.com/.../gfw.pac">
                         <div class="pac-hint">
                             启动时拉取一次；拉取失败会保留上一次缓存。
                         </div>
+                    </div>
+
+                    <div class="pac-rewrite-row">
+                        <div class="pac-rewrite-text">
+                            <span class="auto-start-label">替换 PAC 内的代理地址</span>
+                            <div class="pac-hint" id="pacRewriteHint"></div>
+                        </div>
+                        <button class="toggle" id="pacRewriteToggle" type="button" title="点击切换"></button>
                     </div>
                 </div>
 
@@ -623,6 +640,7 @@ const DEFAULTS = {
 
 let isProxyOn = false;
 let autoStart = false;
+let pacRewrite = true;
 let currentMode = 'global';
 let currentPacSource = 'builtin';
 let dirty = false;
@@ -655,6 +673,8 @@ const domainCount     = document.getElementById('domainCount');
 const localPacPath    = document.getElementById('localPacPath');
 const browsePacBtn    = document.getElementById('browsePac');
 const remotePacUrl    = document.getElementById('remotePacUrl');
+const pacRewriteToggle= document.getElementById('pacRewriteToggle');
+const pacRewriteHint  = document.getElementById('pacRewriteHint');
 const connInline      = document.getElementById('connInline');
 const connText        = document.getElementById('connText');
 const closeModal      = document.getElementById('closeModal');
@@ -689,6 +709,27 @@ function updateDomainCount() {
     domainCount.textContent = lines.length;
 }
 
+// 第三方 PAC 里写的是作者本机的代理地址（gfw-pac 就是 127.0.0.1:3128），
+// 打开开关时会被替换成下面配置的服务器地址。这里把替换后的结果直接显示出来。
+function updatePacRewriteHint() {
+    pacRewriteToggle.classList.toggle('on', pacRewrite);
+    pacRewriteHint.textContent = '';
+
+    if (!pacRewrite) {
+        pacRewriteHint.textContent = '保持 PAC 文件里原有的代理地址';
+        return;
+    }
+    const host = serverInput ? serverInput.value.trim() : '';
+    const port = portInput ? portInput.value.trim() : '';
+    const a = document.createElement('span');
+    a.textContent = 'PAC 内代理地址 → ';
+    const b = document.createElement('span');
+    b.className = 'to';
+    b.textContent = (host && port) ? (host + ':' + port) : '（先填服务器与端口）';
+    pacRewriteHint.appendChild(a);
+    pacRewriteHint.appendChild(b);
+}
+
 function updateAdvancedHint() {
     const baseHint = currentMode === 'smart' ? 'PAC 规则 · 例外 · 自启动' : '例外地址 · 开机自启动';
     advancedHint.textContent = baseHint;
@@ -698,7 +739,8 @@ function updateAdvancedHint() {
     const customPac = currentMode === 'smart' && (
         (currentPacSource === 'local' && localPacPath.value.trim() !== '') ||
         (currentPacSource === 'remote' && remotePacUrl.value.trim() !== '') ||
-        (currentPacSource === 'builtin' && proxyDomains.value.trim() !== DEFAULTS.domains)
+        (currentPacSource === 'builtin' && proxyDomains.value.trim() !== DEFAULTS.domains) ||
+        ((currentPacSource === 'local' || currentPacSource === 'remote') && pacRewrite === false)
     );
 
     advToggle.classList.toggle('has-custom', customOverride || customStart || customPac);
@@ -733,6 +775,7 @@ function updateUI() {
         badgeText.textContent = '已停止';
     }
     updateAdvancedHint();
+    updatePacRewriteHint();
 }
 
 function setConnState(state, text) {
@@ -767,6 +810,7 @@ function collectConfig() {
         pacDomains: proxyDomains.value,
         localPacPath: localPacPath.value.trim(),
         remotePacUrl: remotePacUrl.value.trim(),
+        pacRewrite: pacRewrite,
         autoStart: autoStart
     };
 }
@@ -793,6 +837,8 @@ function applyConfig(cfg) {
 
     autoStart = !!cfg.autoStart;
     autoStartToggle.classList.toggle('on', autoStart);
+
+    pacRewrite = cfg.pacRewrite !== false;
 
     isProxyOn = !!cfg.enabled;
 
@@ -862,11 +908,12 @@ if (window.chrome && window.chrome.webview) {
 }
 
 // ---------- 事件 ----------
-serverInput.addEventListener('input', () => { markDirty(); scheduleConnTest(); });
+serverInput.addEventListener('input', () => { markDirty(); scheduleConnTest(); updatePacRewriteHint(); });
 portInput.addEventListener('input', (e) => {
     e.target.value = e.target.value.replace(/[^0-9]/g, '');
     markDirty();
     scheduleConnTest();
+    updatePacRewriteHint();
 });
 
 switchBtn.addEventListener('click', () => {
@@ -926,6 +973,14 @@ autoStartToggle.addEventListener('click', () => {
     autoStartToggle.classList.toggle('on', autoStart);
     postPS('setAutoStart', { enabled: target });
     updateAdvancedHint();
+});
+
+pacRewriteToggle.addEventListener('click', () => {
+    pacRewrite = !pacRewrite;
+    pacRewriteToggle.classList.toggle('on', pacRewrite);
+    updatePacRewriteHint();
+    updateAdvancedHint();
+    markDirty();
 });
 
 overrideInput.addEventListener('input', () => {

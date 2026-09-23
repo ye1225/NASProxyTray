@@ -144,6 +144,44 @@ $rules
 "@
 }
 
+# ---------- 第三方 PAC 的代理地址替换 ----------
+# 第三方 PAC（gfw-pac / gfwlist 等）里写死的是作者本机的代理地址，
+# 典型就是 gfw-pac 的 `var proxy = "PROXY 127.0.0.1:3128"`。
+# 直接喂给系统只会把命中规则的流量丢进一个本机不存在的端口，
+# 表现就是「原来能开的站全打不开了」。
+# 这里只替换指令里的「地址:端口」，代理方案关键字（PROXY / SOCKS5 / …）
+# 原样保留，不去揣测原作者的协议假设。
+function Convert-PacProxyEndpoint {
+    param([string]$PacContent, [string]$Server, [string]$Port)
+
+    # 末组故意不匹配「只有主机名没有端口」的写法，避免把域名当成地址改掉
+    $pattern = '(?<scheme>\b(?:PROXY|HTTPS|SOCKS5|SOCKS4|SOCKS)\s+)(?<endpoint>[A-Za-z0-9][A-Za-z0-9\.\-]*:\d{1,5})'
+
+    $result = @{ content = $PacContent; count = 0; schemes = @(); from = @(); to = "$Server`:$Port" }
+
+    if ([string]::IsNullOrWhiteSpace($Server) -or [string]::IsNullOrWhiteSpace($Port)) { return $result }
+    if ([string]::IsNullOrWhiteSpace($PacContent)) { return $result }
+
+    $hits = [regex]::Matches($PacContent, $pattern)
+    if ($hits.Count -eq 0) { return $result }
+
+    $literal = "$Server`:$Port"
+    # 替换串里的 $ 必须先转义，否则会被当成正则反向引用
+    $replacement = '${scheme}' + $literal.Replace('$', '$$')
+    $newContent  = [regex]::Replace($PacContent, $pattern, $replacement)
+
+    $schemes = @($hits | ForEach-Object { $_.Groups['scheme'].Value.Trim() } | Select-Object -Unique)
+    $from    = @($hits | ForEach-Object { $_.Groups['endpoint'].Value } | Select-Object -Unique)
+
+    return @{
+        content = $newContent
+        count   = $hits.Count
+        schemes = $schemes
+        from    = $from
+        to      = $literal
+    }
+}
+
 function Apply-ProxyConfig {
     param($Config)
     if (-not $Config.enabled) {
@@ -198,9 +236,23 @@ function Apply-ProxyConfig {
 
     if ([string]::IsNullOrWhiteSpace($pacContent)) { return @{ ok = $false; msg = 'PAC 内容为空' } }
 
+    # 外部 PAC（本地文件 / 远程订阅）里的代理地址换成当前配置的
+    $rewriteNote = ''
+    if ($Config.pacSource -ne 'builtin' -and ($Config.pacRewrite -ne $false)) {
+        $rw = Convert-PacProxyEndpoint -PacContent $pacContent -Server $Config.server -Port $Config.port
+        if ($rw.count -gt 0) {
+            $pacContent  = $rw.content
+            $rewriteNote = "，PAC 内代理地址已替换为 $($rw.to)"
+            Write-Host ("[ProxyTray] PAC 代理地址替换 {0} 处: {1} -> {2}  方案: {3}" -f `
+                $rw.count, ($rw.from -join ' / '), $rw.to, ($rw.schemes -join ','))
+        } else {
+            Write-Host "[ProxyTray] PAC 内未发现代理地址指令，按原样使用"
+        }
+    }
+
     try {
         [void](Set-PacProxy -PacContent $pacContent)
-        return @{ ok = $true; msg = '智能分流已开启' }
+        return @{ ok = $true; msg = "智能分流已开启$rewriteNote" }
     } catch {
         return @{ ok = $false; msg = "设置 PAC 失败：$_" }
     }

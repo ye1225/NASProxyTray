@@ -14,7 +14,7 @@ Windows 托盘工具，一键切换系统代理指向 NAS，支持全局代理�
 | --- | --- |
 | 仓库 | https://github.com/ye1225/NASProxyTray |
 | 本地路径 | `D:\Desktop\NASProxyTray` |
-| 当前版本 | **v1.2.0**（唯一版本源：仓库根目录 `VERSION` 文件） |
+| 当前版本 | **v1.2.2**（唯一版本源：仓库根目录 `VERSION` 文件） |
 | 主分支 | `main` |
 | 运行环境 | Windows 10 1809+ / Windows 11 + WebView2 Runtime |
 | 发布形态 | **单个 `NASProxyTray.exe`**（v1.2.0 起，不必再带 `lib\` 和 `ui\`） |
@@ -47,12 +47,12 @@ D:\Desktop\NASProxyTray\
 └── README.md
 
 （运行时生成，不入库）
-├── dist\                             构建产物：exe / zip / sha256
-├── build\                            拼合后的中间脚本 NASProxyTray.packed.ps1
-├── ProxyTray.log                     运行日志
-├── config.json / proxy.pac          用户配置
-├── update_check.json                 检查更新节流记录
-└── .webview2\                        WebView2 用户数据
+
+- `dist\` 构建产物：exe / zip / sha256
+- `build\` 拼合后的中间脚本 `NASProxyTray.packed.ps1`
+- 所有运行时数据都在 **`%LOCALAPPDATA%\NASProxy\`**（v1.2.1 起；exe 同级目录不再生成
+  任何文件）：`ProxyTray.log` / `config.json` / `proxy.pac` / `proxy_remote.pac` /
+  `update_check.json` / `runtime\<版本>\` / `.webview2\`
 ```
 
 ---
@@ -121,7 +121,13 @@ Get-ChildItem -LiteralPath $srcPath -Filter '*.ps1' |
 共享状态与配置路径：`$script:ConfigFile`、`$script:PacFile`、`$script:PacListener = $null`。
 `Update-InternetSettings`（带 DRYRUN 保护）、`Get-DefaultProxyConfig`、`Get-ProxyConfig`、`Save-ProxyConfig`。
 
-配置项：`server / port / override / mode / pacSource / pacDomains / localPacPath / remotePacUrl / autoStart / enabled`
+配置项：`server / port / override / mode / pacSource / pacDomains / localPacPath / remotePacUrl / pacRewrite / autoStart / enabled`
+
+| 配置项 | 取值 | 说明 |
+| --- | --- | --- |
+| `mode` | `global` / `smart` | `smart` 才看 `pacSource`；**`global` 下 PAC 相关设置全部被忽略** |
+| `pacSource` | `builtin` / `local` / `remote` | 内置域名表 / 本地 `.pac` / 远程 URL（失败回退 `proxy_remote.pac` 缓存） |
+| `pacRewrite` | `true` / `false` | 缺省视为 `true`。仅对外部 PAC 生效，见下一节 |
 
 ### `30-proxy.ps1` — 代理引擎
 
@@ -133,12 +139,43 @@ Get-ChildItem -LiteralPath $srcPath -Filter '*.ps1' |
 | `Start-PacServer` | `TcpListener` 服务 `http://127.0.0.1:<随机端口>/proxy.pac` |
 | `Stop-PacServer` | 停 listener 让阻塞的 `AcceptTcpClient` 醒来 → 优雅退出 |
 | `Build-BuiltinPac` | 按域名列表生成 PAC 内容 |
-| `Apply-ProxyConfig` | 按 config 应用（全局 / PAC / 关闭） |
+| `Convert-PacProxyEndpoint` | **把外部 PAC 里写死的代理地址换成本应用配置的地址**（见下） |
+| `Apply-ProxyConfig` | 按 config 应用（全局 / PAC / 关闭），外部 PAC 会先过一遍地址替换 |
 | `Test-ProxyConn` | `TcpClient` 连接测试，返回延迟 ms |
 | `Set-AutoStart` / `Get-AutoStart` | 写 `Startup\NASProxy.lnk`（不是注册表 Run 键） |
 
 > `Set-GlobalProxy` / `Set-PacProxy` / `Clear-SystemProxy` / `Set-AutoStart` 四个都会改系统，
 > 全部做了 DRYRUN 短路。
+
+#### 外部 PAC 的代理地址替换（v1.2.2）
+
+**问题**：第三方 PAC 里写死的是作者本机的代理地址。gfw-pac 第一行就是
+`var proxy = "PROXY 127.0.0.1:3128";` —— 拿来直接用，命中规则的流量全被丢到
+一个本机不存在的端口上，现象是「Google 全打不开、国内站正常」。
+
+**做法**：`Convert-PacProxyEndpoint` 用一条正则只换「地址:端口」，代理方案关键字原样保留：
+
+```powershell
+$pattern = '(?<scheme>\b(?:PROXY|HTTPS|SOCKS5|SOCKS4|SOCKS)\s+)(?<endpoint>[A-Za-z0-9][A-Za-z0-9\.\-]*:\d{1,5})'
+```
+
+几个容易踩的点：
+- 替换串里的 `$` 必须转义成 `$$`，否则 `192.168.31.126:41634` 会被当成正则反向引用
+  （实际上没有 `$`，但 `server` 里可能有；统一 `.Replace('$','$$')` 最省心）。
+- 正则要求「方案关键字 + 空白 + 主机:端口」，所以 `DIRECT`、`http://host:port`
+  这类不会被误改。
+- 只用 .NET 静态 `[regex]::Replace`，**不要用 `-replace`**（后者对 `$` 的处理更绕）。
+- 不猜协议：PAC 写 `SOCKS5` 就还是 `SOCKS5`，只换地址。发现的方案会写进日志。
+- 关掉开关（`pacRewrite=false`）就完全保留原文件。
+
+实测（v1.2.2，DRYRUN + 用户真实的 `D:\Downloads\gfw.pac`）：
+
+```
+开关开 → var proxy = "PROXY 192.168.31.126:41634";   残留 127.0.0.1:3128 = 0 处
+开关关 → var proxy = "PROXY 127.0.0.1:3128";         残留 127.0.0.1:3128 = 1 处
+日志   → [ProxyTray] PAC 代理地址替换 1 处: 127.0.0.1:3128 -> 192.168.31.126:41634  方案: PROXY
+```
+
 
 ### `40-icon.ps1`
 `New-BallIcon -Color <Color>` 动态画圆点图标（灰 = 关闭，绿 = 开启）。

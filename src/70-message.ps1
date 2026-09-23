@@ -195,7 +195,7 @@ $webView.add_CoreWebView2InitializationCompleted([System.EventHandler[Microsoft.
                     $ui = $obj.config
                     if ($null -eq $ui) { return }
                     $cfg = Get-ProxyConfig
-                    foreach ($k in @('server','port','override','mode','pacSource','pacDomains','localPacPath','remotePacUrl')) {
+                    foreach ($k in @('server','port','override','mode','pacSource','pacDomains','localPacPath','remotePacUrl','pacRewrite')) {
                         if ($ui.PSObject.Properties.Name -contains $k) {
                             $cfg.PSObject.Properties[$k].Value = $ui.$k
                         }
@@ -225,7 +225,7 @@ $webView.add_CoreWebView2InitializationCompleted([System.EventHandler[Microsoft.
                     $wantOn = [bool]$obj.enabled
                     $cfg = Get-ProxyConfig
                     if ($obj.config) {
-                        foreach ($k in @('server','port','override','mode','pacSource','pacDomains','localPacPath','remotePacUrl','autoStart')) {
+                        foreach ($k in @('server','port','override','mode','pacSource','pacDomains','localPacPath','remotePacUrl','pacRewrite','autoStart')) {
                             if ($obj.config.PSObject.Properties.Name -contains $k) {
                                 $cfg.PSObject.Properties[$k].Value = $obj.config.$k
                             }
