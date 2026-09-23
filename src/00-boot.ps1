@@ -125,6 +125,9 @@ try {
 
 # ---------------------------------------------------------------
 # 3) 根目录（只读内容）/ 数据目录（可写内容）
+#    v1.2.1 起 exe 模式的数据（runtime 释放、.webview2、日志、配置、
+#    更新检查缓存）一律放 %LOCALAPPDATA%\NASProxy，不再在 exe 同级
+#    目录生成一堆杂物。源码直跑仍用仓库目录，方便开发与清理。
 # ---------------------------------------------------------------
 $root = $null
 if ($script:appIsExe) {
@@ -139,24 +142,42 @@ if ($script:appIsExe) {
     $root = (Get-Location).Path
 }
 
-# 数据目录可写性探测：exe 放在 Program Files 等只读位置时自动退到 LOCALAPPDATA
-$script:DataDir = $root
-try {
-    $probeFile = Join-Path $root ('.wtest_' + [Guid]::NewGuid().ToString('N'))
-    Set-Content -LiteralPath $probeFile -Value '1' -Encoding ASCII -ErrorAction Stop
-    Remove-Item -LiteralPath $probeFile -Force -ErrorAction SilentlyContinue
-} catch {
+if ($script:appIsExe) {
+    # exe 模式：固定用 %LOCALAPPDATA%\NASProxy（用户级，任何位置可写）
     $script:DataDir = Join-Path $env:LOCALAPPDATA 'NASProxy'
-    if (-not (Test-Path -LiteralPath $script:DataDir)) {
-        New-Item -ItemType Directory -Force -Path $script:DataDir | Out-Null
+    try {
+        if (-not (Test-Path -LiteralPath $script:DataDir)) {
+            New-Item -ItemType Directory -Force -Path $script:DataDir | Out-Null
+        }
+    } catch { }
+} else {
+    # 源码直跑：优先仓库目录；不可写（少见）才退到 LOCALAPPDATA
+    $script:DataDir = $root
+    try {
+        $probeFile = Join-Path $root ('.wtest_' + [Guid]::NewGuid().ToString('N'))
+        Set-Content -LiteralPath $probeFile -Value '1' -Encoding ASCII -ErrorAction Stop
+        Remove-Item -LiteralPath $probeFile -Force -ErrorAction SilentlyContinue
+    } catch {
+        $script:DataDir = Join-Path $env:LOCALAPPDATA 'NASProxy'
+        if (-not (Test-Path -LiteralPath $script:DataDir)) {
+            New-Item -ItemType Directory -Force -Path $script:DataDir | Out-Null
+        }
     }
+}
+
+# v1.2.0 及之前曾把数据写在 exe 同级目录：
+# 配置类文件迁到新数据目录（保留用户设置），可再生成的杂物直接清掉。
+if ($script:appIsExe -and ($script:DataDir -ine $root)) {
+    $script:MigratedFrom = $root
+} else {
+    $script:MigratedFrom = $null
 }
 
 # ---------------------------------------------------------------
 # 版本号：VERSION 文件是唯一来源。
 # 单文件 exe 里没有 VERSION 文件，build.ps1 会把下面这行常量改写成 VERSION 的内容。
 # ---------------------------------------------------------------
-$script:AppVersionBuiltin = '1.2.0'
+$script:AppVersionBuiltin = '1.2.1'
 $script:AppVersion = $script:AppVersionBuiltin
 try {
     $verFile = Join-Path $root 'VERSION'
@@ -272,6 +293,44 @@ function Write-Host {
             Microsoft.PowerShell.Utility\Write-Host $text -ForegroundColor $ForegroundColor
         } else {
             Microsoft.PowerShell.Utility\Write-Host $text
+        }
+    }
+}
+
+# ---------------------------------------------------------------
+# 4.5) 旧版数据迁移（放在 Write-Host 重定向之后，日志才记录得到）
+#     v1.2.0 及之前 exe 把数据写在 exe 同级目录：
+#     配置类文件迁到新数据目录（保留用户设置），可再生成的杂物清掉。
+# ---------------------------------------------------------------
+if ($script:MigratedFrom) {
+    foreach ($mig in @('config.json', 'proxy.pac', 'proxy_remote.pac', 'update_check.json')) {
+        try {
+            $migSrc = Join-Path $script:MigratedFrom $mig
+            $migDst = Join-Path $script:DataDir $mig
+            if ((Test-Path -LiteralPath $migSrc) -and -not (Test-Path -LiteralPath $migDst)) {
+                Move-Item -LiteralPath $migSrc -Destination $migDst -Force
+                Write-Host "[ProxyTray] 迁移旧数据: $mig"
+            }
+        } catch {
+            Write-Host "[ProxyTray] 迁移失败 $mig : $_" -ForegroundColor Yellow
+        }
+    }
+    foreach ($junk in @('runtime', '.webview2', 'ProxyTray.log')) {
+        try {
+            $junkPath = Join-Path $script:MigratedFrom $junk
+            if (-not (Test-Path -LiteralPath $junkPath)) { continue }
+            # 清掉只读/隐藏属性，再用 .NET 直接删：PS5.1 的 Remove-Item -Recurse
+            # 在 ps2exe 环境里实测会静默失败
+            Get-ChildItem -LiteralPath $junkPath -Recurse -Force -ErrorAction SilentlyContinue |
+                ForEach-Object { try { $_.Attributes = 'Normal' } catch { } }
+            if (Test-Path -LiteralPath $junkPath -PathType Container) {
+                [System.IO.Directory]::Delete($junkPath, $true)
+            } else {
+                [System.IO.File]::Delete($junkPath)
+            }
+            Write-Host "[ProxyTray] 清理 exe 目录遗留: $junk"
+        } catch {
+            Write-Host "[ProxyTray] 清理失败 $junk : $_" -ForegroundColor Yellow
         }
     }
 }

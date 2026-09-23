@@ -45,7 +45,7 @@
 
 ### 方式一：下载免安装版（推荐）
 
-1. 到 [Releases](../../releases/latest) 下载 `NASProxyTray-v1.2.0.zip`
+1. 到 [Releases](../../releases/latest) 下载 `NASProxyTray-v1.2.1.zip`
 2. 解压到任意目录（**不要放在需要管理员权限的目录**，比如 `C:\Program Files`）
 3. 双击 `NASProxyTray.exe`
 4. 托盘出现图标 → 左键双击 = 打开界面
@@ -54,8 +54,9 @@
 > `%LOCALAPPDATA%\NASProxy\runtime\<版本>\`，之后启动直接复用。
 > 所以 exe 可以随便移动、随便改名，不必再和目录一起带着走。
 >
-> exe 放在只读目录（如 `C:\Program Files`）也能跑：数据目录会自动退到
-> `%LOCALAPPDATA%\NASProxy`。
+> **v1.2.1 起所有运行时数据都放在 `%LOCALAPPDATA%\NASProxy\`**（日志、配置、
+> WebView2 缓存、更新检查记录），exe 同级目录不再生成任何文件。从旧版本
+> 升级时，程序会自动迁移配置并清理 exe 目录里的遗留杂物。
 
 ## 🖱️ 使用方法
 

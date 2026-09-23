@@ -28,6 +28,10 @@ if ($script:hasDarkRenderer) {
         if ($rt) { $menu.Renderer = [System.Activator]::CreateInstance($rt) }
     } catch { }
 }
+# 字体：固定 9pt，不按 DpiScale 手工放大。
+# GDI+ 渲染 point 字体时会随设备 DPI（200% 屏 = 192）自动放大，
+# 再手工乘一遍就是双重放大 —— v1.2.0 在 4K 上菜单文字特别大就是这个原因。
+# Padding 是物理像素，WinForms 不会代缩，这里保留手工乘 DpiScale。
 $menu.BackColor         = [System.Drawing.Color]::FromArgb(38, 38, 42)
 $menu.ForeColor         = [System.Drawing.Color]::FromArgb(240, 240, 245)
 $menu.ShowImageMargin   = $false
@@ -35,8 +39,7 @@ $padX = [Math]::Max(2, [int][Math]::Round(2 * $script:DpiScale))
 $padY = [Math]::Max(4, [int][Math]::Round(4 * $script:DpiScale))
 $menu.Padding           = New-Object System.Windows.Forms.Padding($padX, $padY, $padX, $padY)
 $menu.DropShadowEnabled = $true
-$menuFontSize = [Math]::Max(9, [Math]::Round(9 * $script:DpiScale, 1))
-try { $menu.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', $menuFontSize) } catch { }
+try { $menu.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 9) } catch { }
 
 # 有新版本时才显示的一项（默认隐藏，由 80-update 控制）
 $miNewVer = [System.Windows.Forms.ToolStripMenuItem]::new('发现新版本')

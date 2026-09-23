@@ -1,0 +1,22 @@
+﻿exe dir = C:\Users\YE\AppData\Local\Temp\NPT_v121_33703db5
+started pid=6284
+alive = True
+exe dir after run: NASProxyTray.exe
+>> exe 目录干净，无杂物 <<
+--- 数据目录 C:\Users\YE\AppData\Local\NASProxy ---
+  .webview2
+  runtime
+  ProxyTray.log
+  update_check.json
+runtime 1.2.1 .ok 存在 = True
+runtime 内容: lib, ui, .ok
+--- 日志（本 exe 运行相关行）---
+  [2026-09-23 16:21:23.191] [ProxyTray] mode=EXE self=C:\Users\YE\AppData\Local\Temp\NPT_v121_33703db5\NASProxyTray.exe
+  [2026-09-23 16:21:23.194] [ProxyTray] root=C:\Users\YE\AppData\Local\Temp\NPT_v121_33703db5  data=C:\Users\YE\AppData\Local\NASProxy
+  [2026-09-23 16:21:23.200] [ProxyTray] version=1.2.1  packed=True  console=False
+  [2026-09-23 16:21:23.201] [ProxyTray] content=C:\Users\YE\AppData\Local\NASProxy\runtime\1.2.1
+  [2026-09-23 16:21:23.202] [ProxyTray] dpiAware=PerMonitorV2
+  [2026-09-23 16:21:24.142] [ProxyTray] dpiScale=2  initSize=840x1000
+  [2026-09-23 16:21:25.402] [ProxyTray] INIT OK, browser = 145.0.3800.97
+  [2026-09-23 16:21:29.356] [ProxyTray] 开始检查更新（超时 10 秒）
+
