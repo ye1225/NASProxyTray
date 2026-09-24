@@ -13,7 +13,7 @@ Windows 托盘工具，一键切换系统代理指向 NAS，支持全局代理�
 | 项目 | 值 |
 | --- | --- |
 | 仓库 | https://github.com/ye1225/NASProxyTray |
-| 本地路径 | `D:\Desktop\NASProxyTray` |
+| 本地路径 | 笔记本 `D:\Desktop\NASProxyTray`；台式机 `C:\Users\Administrator\Desktop\NASProxyTray` |
 | 当前版本 | **v1.2.6**（唯一版本源：仓库根目录 `VERSION` 文件） |
 | 主分支 | `main` |
 | 运行环境 | Windows 10 1809+ / Windows 11 + WebView2 Runtime |
@@ -400,8 +400,22 @@ $script:DpiScale = [Math]::Round(($dpi / 96.0) * 4) / 4   # 归到 0.25 的倍�
 
 `size` 消息上来的是 CSS px，宿主乘 `$script:DpiScale` 后再 `SetBounds`。两边基准必须分清。
 
-**实测**：本机 3200×2000 @200% → `dpiScale=2`，初始化窗口 `840x1000` 设备像素，
-日志 `dpiAware=PerMonitorV2`，界面清晰。
+**实测**（两台机器各验一次，缩放不同、结果不同）：
+
+| 机器 | 屏幕 | `dpiScale` | 初始化窗口（设备像素） | 落点 |
+| --- | --- | --- | --- | --- |
+| 笔记本 | 3200×2000 @200% | `2` | `840x1000` | `(2336,896)` |
+| 台式机 | 3440×1440 @100% | `1` | `420x500` | `(3008,880)` |
+
+两次日志都是 `dpiAware=PerMonitorV2`，界面清晰。落点可以拿
+`wa.Right - initW - margin` / `wa.Bottom - initH - margin` 反推校验：
+台式机 `3440-420-12=3008`、`1392-500-12=880` ✓ 与日志分毫不差。
+
+> ⚠️ **判断当前缩放别信注册表**。`HKCU:\Control Panel\Desktop\LogPixels` 与
+> `PerMonitorSettings\*\DpiValue` 都可能是改缩放后留下的**陈旧值** —— 台式机
+> `LogPixels=144`（看着像 150%）但两个屏实际都是 100%，差点把正确的 `dpiScale=1`
+> 当成 bug。可靠办法：Python+ctypes 调 `shcore.GetDpiForMonitor(MDT_EFFECTIVE_DPI)`
+> 拿每个显示器的真实 DPI，或用上面的落点公式反推。
 
 ---
 
@@ -428,17 +442,34 @@ TLS 强制 1.2（PS 5.1 默认可能还是 1.0/1.1）。
 
 ## 环境事实与踩过的坑
 
-**本机环境**（这些都影响命令怎么写）：
+**两台开发机**（这些数值都会影响命令怎么写，**按当前这台核对，别照抄另一台**）：
 
-| 项 | 值 |
-| --- | --- |
-| 系统 | Windows 11 Build 26200 |
-| 屏幕 | **3200×2000 @ 200% 缩放**（有效 1600×1000） |
-| PowerShell | **5.1.19041.6456**，没有 `pwsh` |
-| WebView2 Runtime | 已装，运行时上报浏览器版本 **145.0.3800.97** |
-| ps2exe | 1.0.18（`build.ps1` 会自动装到 CurrentUser） |
-| git | 2.55.0.windows.5 |
-| `gh` CLI | ✅ 2.101.0，装在 `%LOCALAPPDATA%\Programs\gh\gh.exe`，已授权账号 `ye1225` |
+| 项 | 笔记本（v1.0.0→v1.2.6 全部工作在它上面做） | **台式机（2026-09-24 起接手）** |
+| --- | --- | --- |
+| 系统 | Windows 11 Build 26200 | Windows 11 24H2 |
+| 屏幕 | **3200×2000 @ 200% 缩放**（有效 1600×1000） | 主屏 3440×1440 + 竖屏 1080×1920，**均 @ 100%** |
+| PowerShell | **5.1.19041.6456**，没有 `pwsh` | **5.1.26100.9444**，没有 `pwsh` |
+| WebView2 Runtime | 浏览器版本 **145.0.3800.97** | 浏览器版本 **153.0.4234.48** |
+| ps2exe | 1.0.18 | 1.0.18（`D:\Documents\WindowsPowerShell\Modules\`） |
+| git | 2.55.0.windows.5 | 2.55.0.windows.3 |
+| `gh` CLI | ✅ 2.101.0，`%LOCALAPPDATA%\Programs\gh\gh.exe`，已授权 `ye1225` | ✅ 同上（2026-09-24 装好并授权） |
+| 用户目录 | `C:\Users\YE` | `C:\Users\Administrator` |
+
+### 台式机实测（2026-09-24）
+
+- 网段 `192.168.31.185/24`（与笔记本同一网段），系统代理已指向 NAS
+  `192.168.31.126:41634`（`ProxyEnable=1`、无 `AutoConfigURL`），**实测可达**
+  —— 也就是说台式机已经在用这台 NAS 代理，只是没用本程序托管
+- `build.ps1` **1.9 秒**跑通（11 个模块 / 1780 行）；干净目录 DRYRUN 冒烟全绿：
+  `packed=True` `content=runtime\1.2.6` `dpiAware=PerMonitorV2` `dpiScale=1`
+  `INIT OK browser=153.0.4234.48`；`runtime\1.2.6\` 下 3 个 DLL + `index.html` + `.ok` 齐全，
+  注册表 BEFORE/AFTER 完全一致（没污染用户现用的系统代理）
+- **两个屏都是 100% 缩放** → **高 DPI 路径在台式机验不到**，要复现得手动把缩放调上去
+- 杀软：**360 也在**（`360Safe` / `360sd` / `360DrvMgr`），Defender 实时防护是关的
+  （被 360 顶掉）→ 换 exe 过来照样会误报
+- 桌面另有 `NASProxyTray1.exe`（62,976 B = v1.0.0 精简版）；
+  台式机自己的 `D:\Desktop\proxy\` 里是**旧的单文件版**（`ProxyTray.ps1` + `lib\` + `ui\`，
+  **没有 `src\`**），别当现行源码（笔记本上**同一个路径**是另一份，别混）
 
 **坑清单**：
 
@@ -454,6 +485,19 @@ TLS 强制 1.2（PS 5.1 默认可能还是 1.0/1.1）。
 7. **`-noConsole` 后 `Write-Host` 转发会拖慢启动**（曾出现 13 秒启动）。用 `[Console]::WindowWidth` 探测有无控制台。
 8. **从 Bash 调 `powershell` 会被安全策略拦截**，本地执行 PowerShell 请走 PowerShell 工具或直接双击脚本。
 9. 本环境的 Git Bash 缺 `dirname` / `ls`，纯 shell 命令前先 `export PATH="/usr/bin:/bin:$PATH"`。
+10. **判 DPI 别看 `HKCU:\Control Panel\Desktop\LogPixels`**。它和 `PerMonitorSettings\*\DpiValue`
+    都可能是**切换缩放后遗留的陈旧值** —— 台式机 `LogPixels=144`（看着像 150%）但两个屏实际都是
+    100%，差点把正确的 `dpiScale=1` 误判成 bug。可靠办法见「高 DPI」一节。
+11. **`Add-Type` 在助手的 PowerShell 工具里被沙箱拦**（"compiles and loads .NET code at runtime"）。
+    要 P/Invoke 探系统 API（读 DPI、枚举显示器之类）改用 **Python + ctypes** ——
+    `user32.GetDpiForSystem` / `shcore.GetDpiForMonitor` 都能直接调。
+12. **核对与远端是否同步用 `git ls-remote origin main`**，别用 `git log origin/main`
+    （`refs/remotes/` 落不了盘，永远报 unknown revision）。
+13. **`sc query` 在台式机被命令黑名单拦**（`PROGRAM BLOCKED BY SECURITY POLICY`）。
+    查服务状态改用 PowerShell 的 `Get-Service`。
+14. **助手工具的 stdout 偶发捕获不到**（exit 0 但零输出），`gh api` 输出经 `ConvertFrom-Json`
+    也会偶发变空。重要结果一律 `Set-Content` 到文件再读回来；调 API 时打印
+    `rawlen` 自证，别直接信解析结果。
 
 ---
 
@@ -536,17 +580,23 @@ gh release create v1.2.6 dist/NASProxyTray.exe dist/NASProxyTray-v1.2.6.zip \
 | 内容 | 说明 / 恢复方式 |
 | --- | --- |
 | `.workbuddy/`（助手记忆、每日日志） | 已被 `.gitignore` 排除；要带走就整个目录拷 |
+| `会话存档/`、`本机环境参考/` | 换机器时助手/用户带过来的参考资料（体积大、绑机器），也已排除，要带走同样整个目录拷 |
 | `dist/`（exe、zip、sha256、发布文案） | 重新 `.\build.ps1` 即可 |
 | `build/list-cache/`（词表缓存） | 重跑 `tools/gen-china-list.py` 会重新下载 |
 | `%LOCALAPPDATA%\NASProxy\`（配置、PAC、日志） | 本机运行时数据，不必带走 |
-| `D:\Desktop\proxy\NASProxyTray-vX.Y.Z\`（用户部署目录） | 用户本机习惯，新机器上重新解压 |
+| `D:\Desktop\proxy\NASProxyTray-vX.Y.Z\`（笔记本上的用户部署目录） | 用户本机习惯，新机器上重新解压 |
 | `gh` 授权、git 凭据 | 新机器上 `gh auth login` 重新授权 |
 
 **新机器上的开工三步**：装 WorkBuddy → `git clone` 本仓库 → 让助手先读 `HANDOFF.md`
-（第 60 行的「加载顺序只有一个来源」和第 429 行的「环境事实与踩过的坑」是必读）。
+（**「架构：加载顺序只有一个来源」**和**「环境事实与踩过的坑」**两节是必读）。
 
-> 桌面机的环境与本机可能不同（屏幕缩放、杀软、PowerShell 版本），
-> 上面「环境事实」一节的数值要在新机器上重新核对一遍。
+本仓库的坑是**跨机器继承**的：`.ps1` 要带 BOM、`Remove-Item` 被包装器接管、
+`refs/remotes/` 落不了盘这几条在笔记本和台式机上**都成立**；而屏幕缩放、杀软、
+WebView2 版本这类要按机器重新核对（见「环境事实」的两台机器对照表）。
+
+> **台式机（2026-09-24）已经做完的开工准备**：git clone 到位、`gh` 装好并授权 `ye1225`、
+> `credential.helper=manager` 已配、`build.ps1` 与 DRYRUN 冒烟验证通过 ——
+> 即台式机现在可以直接开发 + 发 Release 了。下次换新机器照上面的三步重来一遍即可。
 
 ---
 
