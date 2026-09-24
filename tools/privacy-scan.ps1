@@ -83,8 +83,30 @@ $py = Find-Python
 
 if ($py) {
     if (-not $Quiet) { Write-Host ('[隐私检查] 检查器：' + $checker) -ForegroundColor DarkGray }
-    & $py.Exe @($py.Args + @($checker, $Mode, '--repo', $Root))
-    exit $LASTEXITCODE
+
+    # 中文乱码防护：本机系统 ANSI 已是 UTF-8（Windows「Beta: 使用 Unicode UTF-8」开着），
+    # 检查器（Python）吐的也是 UTF-8 字节；但控制台代码页可能仍是 936，字节到终端被按 GBK
+    # 解释 → 乱码。跑检查器期间把代码页和 OutputEncoding 一起对齐成 UTF-8，跑完双双恢复。
+    # （被 收工.ps1 调用时父进程已经切过，这里检测到 65001 会自动跳过。）
+    $prevEnc = [Console]::OutputEncoding
+    $chcpExe = (Get-Command chcp -ErrorAction SilentlyContinue).Source
+    $prevCp = ''
+    if ($chcpExe) { $prevCp = (((& $chcpExe) 2>&1) | Out-String) -replace '\D', '' }
+    $cpSwitched = $false
+    if ($chcpExe -and $prevCp -and $prevCp -ne '65001') {
+        & $chcpExe 65001 > $null 2>&1
+        $cpSwitched = $true
+    }
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+    try {
+        & $py.Exe @($py.Args + @($checker, $Mode, '--repo', $Root))
+        $exitCode = $LASTEXITCODE
+    } finally {
+        [Console]::OutputEncoding = $prevEnc
+        if ($cpSwitched) { & $chcpExe $prevCp > $null 2>&1 }
+    }
+    exit $exitCode
 }
 
 # ---------- 降级：内置最小正则（**规则集以 repo_hygiene.py 为准，这里只做兜底**）----------
