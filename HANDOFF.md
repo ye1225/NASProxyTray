@@ -566,8 +566,7 @@ export PATH="/usr/bin:/bin:$HOME/AppData/Local/Programs/gh:$PATH"
 # 台式机：环境变量里的代理指向 WorkBuddy 透明代理（127.0.0.1:2184 → NAS），
 # 那条链会偶发 502；先清空再显式指 NAS 代理最稳
 export http_proxy= https_proxy= HTTP_PROXY= HTTPS_PROXY=
-git -c http.proxy=http://<NAS:端口> -c https.proxy=http://<NAS:端口> \
-    -c credential.helper='!gh auth git-credential' push origin main
+git -c http.proxy=http://<NAS:端口> -c https.proxy=http://<NAS:端口> push origin main
 
 export HTTPS_PROXY=http://<NAS:端口> https_proxy=http://<NAS:端口>
 gh release create v1.2.7 dist/NASProxyTray.exe dist/NASProxyTray-v1.2.7.zip \
@@ -588,8 +587,12 @@ gh release create v1.2.7 dist/NASProxyTray.exe dist/NASProxyTray-v1.2.7.zip \
 - **`build.ps1` 别用 `Set-Location` + `*>` / `Tee-Object` 跑**（PowerShell 工具 stdout 会抽风：
   日志只到 `[5/6]`、exe 不更新，白跑）。用后台方式（`run_in_background`）最稳；
   验产物版本别信输出，直接数 exe 里的版本字节或看 `build/NASProxyTray.packed.ps1`
-- **推送凭据**：已执行 `git config --global credential.helper manager`，
-  但本机 push 走 `!gh auth git-credential` 更稳
+- **推送凭据（2026-09-24 已钉死）**：`~/.gitconfig` 的 `credential.helper` 第一条是
+  **空值**（重置 helper 列表，清掉 PortableGit 系统级塞入的 `helper-selector` ——
+  它就是反复弹 `CredentialHelperSelector` 框的元凶），第二条是
+  `!"C:/Users/Administrator/AppData/Local/Programs/gh/gh.exe" auth git-credential`
+  （绝对路径，防 PATH 裁剪）。push 不再需要任何 `-c credential.helper`；
+  若弹框复发先 `git config --show-origin --get-all credential.helper` 查插队来源
 
 ---
 
