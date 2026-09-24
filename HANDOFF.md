@@ -1,8 +1,9 @@
 ﻿# NASProxyTray · 交接文档
 
 > 交接给下一个接手的人（或 AI）。
-> **当前状态：v1.2.6 已发布。此后两个提交已实机验证待发 v1.2.7：**
-> **`c948451` 圆角改走 DWM 合成（消锯齿，含 ps2exe 版本谎报的修复）；`26bac16` 托盘双击切代理 + 图标三色。**
+> **当前状态：v1.2.7 已发布**（2026-09-24，`f717411`）。
+> 本版内容：`c948451` 圆角改走 DWM 合成（消锯齿，含 ps2exe 版本谎报的修复）；
+> `26bac16` 托盘双击切代理 + 图标三色；`0678fb9` 文档与测速脚本。
 
 ---
 
@@ -15,7 +16,7 @@ Windows 托盘工具，一键切换系统代理指向 NAS，支持全局代理�
 | --- | --- |
 | 仓库 | https://github.com/ye1225/NASProxyTray |
 | 本地路径 | 笔记本 `D:\Desktop\NASProxyTray`；台式机 `C:\Users\Administrator\Desktop\NASProxyTray` |
-| 当前版本 | **v1.2.6**（唯一版本源：仓库根目录 `VERSION` 文件） |
+| 当前版本 | **v1.2.7**（唯一版本源：仓库根目录 `VERSION` 文件） |
 | 主分支 | `main` |
 | 运行环境 | Windows 10 1809+ / Windows 11 + WebView2 Runtime |
 | 发布形态 | **单个 `NASProxyTray.exe`**（v1.2.0 起，不必再带 `lib\` 和 `ui\`） |
@@ -457,7 +458,7 @@ TLS 强制 1.2（PS 5.1 默认可能还是 1.0/1.1）。
 
 **两台开发机**（这些数值都会影响命令怎么写，**按当前这台核对，别照抄另一台**）：
 
-| 项 | 笔记本（v1.0.0→v1.2.6 全部工作在它上面做） | **台式机（2026-09-24 起接手）** |
+| 项 | 笔记本（v1.0.0→v1.2.6 的工作在它上面做） | **台式机（2026-09-24 起接手，v1.2.7 从它发布）** |
 | --- | --- | --- |
 | 系统 | Windows 11 Build 26200 | Windows 11 24H2 |
 | 屏幕 | **3200×2000 @ 200% 缩放**（有效 1600×1000） | 主屏 3440×1440 + 竖屏 1080×1920，**均 @ 100%** |
@@ -562,22 +563,31 @@ Release 用于分发 exe，全程命令行：
 
 ```bash
 export PATH="/usr/bin:/bin:$HOME/AppData/Local/Programs/gh:$PATH"
-# 推送（必须带 gh 的凭据助手，否则会弹 CredentialHelperSelector 或直接 401）
-git -c credential.helper='!gh auth git-credential' push origin main
+# 台式机：环境变量里的代理指向 WorkBuddy 透明代理（127.0.0.1:2184 → NAS），
+# 那条链会偶发 502；先清空再显式指 NAS 代理最稳
+export http_proxy= https_proxy= HTTP_PROXY= HTTPS_PROXY=
+git -c http.proxy=http://<NAS:端口> -c https.proxy=http://<NAS:端口> \
+    -c credential.helper='!gh auth git-credential' push origin main
 
-gh release create v1.2.6 dist/NASProxyTray.exe dist/NASProxyTray-v1.2.6.zip \
-  --repo ye1225/NASProxyTray --title "v1.2.6" \
-  --notes-file dist/RELEASE_NOTES-v1.2.6.md --latest
+export HTTPS_PROXY=http://<NAS:端口> https_proxy=http://<NAS:端口>
+gh release create v1.2.7 dist/NASProxyTray.exe dist/NASProxyTray-v1.2.7.zip \
+  --repo ye1225/NASProxyTray --title "v1.2.7" \
+  --notes-file dist/RELEASE_NOTES-v1.2.7.md --latest
 ```
 
-已发布：v1.0.0 / v1.2.0 / v1.2.1 / v1.2.2 / v1.2.3 / v1.2.4 / v1.2.5 / v1.2.6。
+已发布：v1.0.0 / v1.2.0 / v1.2.1 / v1.2.2 / v1.2.3 / v1.2.4 / v1.2.5 / v1.2.6 / **v1.2.7**。
 
 踩过的坑：
 
 - **`gh release upload` 读不了项目目录外的文件**（沙箱限制）→ 先把文件拷进仓库目录再传
 - **`gh api .../releases/latest` 的 `.assets` 字段有时为空**（GitHub 正在灰度 immutable
   releases），要看附件请查 `releases/latest` 或 `releases/{id}/assets`，别信列表里的 `.assets`
-- 直连 github.com 的 TLS 握手偶发失败，重试即可；`gh` 走的是系统代理
+- **`schannel: failed to receive handshake` / `api.github.com ... EOF` / `CONNECT tunnel failed 502`
+  都是链路瞬时抖动**，与 NAS 代理本身无关（curl 直连 NAS 一直 200）。**写个 for 循环重试
+  2~3 次必过**，不要当成故障排查
+- **`build.ps1` 别用 `Set-Location` + `*>` / `Tee-Object` 跑**（PowerShell 工具 stdout 会抽风：
+  日志只到 `[5/6]`、exe 不更新，白跑）。用后台方式（`run_in_background`）最稳；
+  验产物版本别信输出，直接数 exe 里的版本字节或看 `build/NASProxyTray.packed.ps1`
 - **推送凭据**：已执行 `git config --global credential.helper manager`，
   但本机 push 走 `!gh auth git-credential` 更稳
 
