@@ -72,6 +72,12 @@ GitHub Release 页面读到）。
 ├── speedtest3.py / .bat              三轮交互测速（全局/规则/关闭），双击 bat 按提示操作
 ├── docs\                             需求与决策记录（见下）
 │   └── 需求与决策.md                 每条需求的原话 + 逐条决策与理由，**只追加不改历史**
+├── .githooks\pre-push                **隐私闸门**：push 时自动跑检查，不过就拒绝推送
+├── .gitattributes                    锁住钩子的 LF（CRLF 会让 shebang 静默失效）
+├── tools\
+│   ├── gen-china-list.py             生成内置国内直连清单（三个公开源交叉，带缓存）
+│   ├── repo_hygiene.py               隐私 / 提交邮箱 / 陈旧信息检查器（纯标准库）
+│   └── privacy-scan.ps1              隐私检查统一入口（没 Python 时降级并**明确告警**）
 ├── LICENSE                           MIT
 └── README.md
 
@@ -647,12 +653,14 @@ gh release create v1.2.8 dist/NASProxyTray.exe dist/NASProxyTray-v1.2.8.zip \
 ## 换机器接手清单
 
 **会跟着仓库走**：全部源码、`HANDOFF.md`、`README.md`、`build.ps1`、`tools/gen-china-list.py`、
-`VERSION`、`lib\` 的 3 个 DLL、`app.ico`。
+`tools/repo_hygiene.py`、`tools/privacy-scan.ps1`、`.githooks/pre-push`、`.gitattributes`、
+`docs/`、`VERSION`、`lib\` 的 3 个 DLL、`app.ico`。
 
 **不会跟着走**（都是本机/本进程产物）：
 
 | 内容 | 说明 / 恢复方式 |
 | --- | --- |
+| **`core.hooksPath` 配置（隐私闸门是否上膛）** | 钩子文件随仓库走，但**仓库本地配置不随 clone 走** → 新机器上跑一次 `git config core.hooksPath .githooks`（`_工具\开工.ps1` 会自动做） |
 | `.workbuddy/`（助手记忆、每日日志） | 已被 `.gitignore` 排除；要带走就整个目录拷 |
 | `会话存档/`、`本机环境参考/` | 换机器时助手/用户带过来的参考资料（体积大、绑机器），也已排除，要带走同样整个目录拷 |
 | `dist/`（exe、zip、sha256、发布文案） | 重新 `.\build.ps1` 即可 |
@@ -660,9 +668,12 @@ gh release create v1.2.8 dist/NASProxyTray.exe dist/NASProxyTray-v1.2.8.zip \
 | `%LOCALAPPDATA%\NASProxy\`（配置、PAC、日志） | 本机运行时数据，不必带走 |
 | `D:\Desktop\proxy\NASProxyTray-vX.Y.Z\`（笔记本上的用户部署目录） | 用户本机习惯，新机器上重新解压 |
 | `gh` 授权、git 凭据 | 新机器上 `gh auth login` 重新授权 |
+| Python 3（**隐私闸门的硬依赖**） | 钩子优先用 Python 跑检查器；没有就退到 PowerShell 内置正则（更弱，会告警）。装一个 Python 3 即恢复完整能力 |
 
 **新机器上的开工三步**：装 WorkBuddy → `git clone` 本仓库 → 让助手先读 `HANDOFF.md`
 （**「架构：加载顺序只有一个来源」**和**「环境事实与踩过的坑」**两节是必读）。
+**外加一步**：`git config core.hooksPath .githooks` 上膛隐私闸门（忘了也不会报错，
+但推送就少了那道拦截）。
 
 本仓库的坑是**跨机器继承**的：`.ps1` 要带 BOM、`Remove-Item` 被包装器接管、
 `refs/remotes/` 落不了盘这几条在笔记本和台式机上**都成立**；而屏幕缩放、杀软、
@@ -679,11 +690,17 @@ WebView2 版本这类要按机器重新核对（见「环境事实」的两台�
 
 ```bash
 git pull --rebase origin main                 # 开工前
-git add . && git commit -m "..." && git push  # 收工
+git add . && git commit -m "..." && git push  # 收工（push 会自动过一遍隐私闸门，见下）
 ```
 
 **每次提交前问一句**：这次改动对应的需求记进 `docs\需求与决策.md` 了吗？
 需求有变就**追加一条**（并注明取代了哪条），本文件的相关章节同步更新 —— 落纸，别留「下次再说」。
+
+第一次在这个 clone 上干活，先上膛（**换机器后必做**，`_工具\开工.ps1` 会自动做）：
+
+```bash
+git config core.hooksPath .githooks
+```
 
 `.gitignore` 已排除：`dist/`、`build/`、`*.exe`、`*.log`、`config.json`、`.webview2/`、
 `update_check.json`、`.workbuddy/`、`会话存档/`、`本机环境参考/`。
@@ -691,14 +708,46 @@ git add . && git commit -m "..." && git push  # 收工
 **注意 `lib/` 下的 3 个 DLL 是入库的**（`.gitignore` 刻意没写 `*.dll`）。
 `app.ico` 也保留，`build.ps1` 依赖它。
 
-### 提交前的隐私自检（**入库前必跑**）
+### 提交前的隐私自检（**已做成自动闸门，2026-09-24 起**）
 
-仓库是公开的，提交前扫一遍有没有把「本机事实」写进文档/代码：
+仓库是公开的。**这件事不再靠人记得** —— 本仓库带一个 `pre-push` 钩子，
+**每次 `git push` 自动跑**，发现问题**直接拒绝推送**（钩子返回非零，推送中止）。
+
+```
+.githooks\pre-push          推送闸门（git pre-push 钩子，纯 sh，调下面这个入口）
+tools\privacy-scan.ps1      统一入口：找 Python → 跑检查器 → 把退出码透出去
+tools\repo_hygiene.py       检查器本体（纯标准库；与 skill 上游副本逐字节相同）
+.gitattributes              锁住钩子的 LF（CRLF 会让 shebang 失效，**且是静默失效**）
+```
+
+三级严重度，**只有前两级会拦**：
+
+| 检查 | 内容 | 不过会怎样 |
+| --- | --- | --- |
+| `privacy` | 私网地址 / 个人邮箱 / 绝对用户路径 / 令牌 / 机器名（**只扫被 git 跟踪的文件**，即真正会公开的内容） | **拦** |
+| `emails` | 作者与提交者邮箱必须是 noreply | **拦** |
+| `stale` | 文档里的版本号、产物大小与 `VERSION` / `dist` 对不上 | 只提示（文档滞后不该阻断推送） |
+
+**一次性启用**（每个 clone 都要做一次 —— 因为 `core.hooksPath` 是**仓库本地配置，不随 clone 走**）：
 
 ```bash
-# 真实地址 / 邮箱 / 绝对路径 / 令牌
-git grep -n -I -E "192\.168\.[0-9]+\.[0-9]+|100\.[0-9]+\.[0-9]+\.[0-9]+|@(gmail|qq|outlook)\.com|[A-Za-z]:\\\\Users\\\\|ghp_|github_pat_" -- .
+git config core.hooksPath .githooks
 ```
+
+> 换机器时这一步由 `_工具\开工.ps1` **自动完成**并写进开工报告，不用记。
+> **为什么要在开工时上膛**：不上膛就等于没有闸门，而且是**静默失效**（推上去才发现就晚了）。
+> 临时跳过：`git push --no-verify`（**仅限确知没有隐私风险时**）。
+
+**手工跑一遍**（等同钩子内容，改完文档先自查很方便）：
+
+```bash
+python tools/repo_hygiene.py all --repo .       # 三样一起
+python tools/repo_hygiene.py privacy --repo .   # 只扫隐私
+powershell -ExecutionPolicy Bypass -File tools\privacy-scan.ps1   # 没装 Python 或想用统一入口
+```
+
+`_工具\收工.ps1` 也会逐个仓库扫一遍（**因为收工之后这些文件要往 NAS 传**，是隐私外流的另一个出口），
+不过就中止、不写同步状态、不打包。
 
 补充两条经验：
 
@@ -710,6 +759,10 @@ git grep -n -I -E "192\.168\.[0-9]+\.[0-9]+|100\.[0-9]+\.[0-9]+\.[0-9]+|@(gmail|
   `git diff <旧HEAD> <新HEAD>` 为空）。**预防**：`git config user.email`
   用 `37562835+ye1225@users.noreply.github.com`，并到 GitHub 设置里打开
   「Keep my email addresses private」+「Block command line pushes that expose my email」
+
+> **检查器没找到时会「降级但不静默」**：`privacy-scan.ps1` 找不到 Python 3 就退到内置的
+> **最小正则**兜底，并**必定**打印告警（该告警不受 `-Quiet` 影响）—— 检查能力变弱必须让人看见。
+> 钩子找不到检查器文件时也会明确告知「**本次推送未做隐私检查**」，而不是假装通过。
 
 ---
 
