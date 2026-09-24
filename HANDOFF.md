@@ -1,9 +1,9 @@
 ﻿# NASProxyTray · 交接文档
 
 > 交接给下一个接手的人（或 AI）。
-> **当前状态：v1.2.7 已发布**（2026-09-24，`f717411`）。
-> 本版内容：`c948451` 圆角改走 DWM 合成（消锯齿，含 ps2exe 版本谎报的修复）；
-> `26bac16` 托盘双击切代理 + 图标三色；`0678fb9` 文档与测速脚本。
+> **当前状态：v1.2.8 已发布**（2026-09-24，`7d60248`）。
+> 本版内容：公开仓库脱敏（示例地址统一为 `192.168.1.100:7890`，去掉本机路径/账号名）
+> + 文档完善。功能上等价于 v1.2.7（圆角走 DWM 合成、托盘双击切代理 + 图标三色）。
 
 ---
 
@@ -16,7 +16,7 @@ Windows 托盘工具，一键切换系统代理指向 NAS，支持全局代理�
 | --- | --- |
 | 仓库 | https://github.com/ye1225/NASProxyTray （**公开仓库**，已做脱敏，约定见「隐私与脱敏」一节） |
 | 本地路径 | 两台机器都是 `<用户目录>\Desktop\NASProxyTray`（笔记本装在 `D:\`，台式机在 `C:\`） |
-| 当前版本 | **v1.2.7**（唯一版本源：仓库根目录 `VERSION` 文件） |
+| 当前版本 | **v1.2.8**（唯一版本源：仓库根目录 `VERSION` 文件） |
 | 主分支 | `main` |
 | 运行环境 | Windows 10 1809+ / Windows 11 + WebView2 Runtime |
 | 发布形态 | **单个 `NASProxyTray.exe`**（v1.2.0 起，不必再带 `lib\` 和 `ui\`） |
@@ -39,6 +39,7 @@ GitHub Release 页面读到）。
 | **v1.2.5** | 交互简化 | 取消「保存设置」按钮 → **600ms 防抖自动保存** |
 | **v1.2.6** | 回归修复 | 修 v1.2.5 引入的**自动保存无限循环**（`flushSave` 未清 `dirty`），并加 5 秒看门狗 |
 | **v1.2.7** | 圆角 + 托盘交互 | ①窗口圆角改走 **DWM 合成**，消除 1-bit region 锯齿（挖出 ps2exe 谎报系统版本的老 bug）；②**双击托盘=切换代理、单击=开界面**，图标三色区分模式；③收录三轮交互测速脚本 |
+| **v1.2.8** | 脱敏 | 默认代理地址改为示例值 `192.168.1.100:7890`（已有用户的配置不受影响）；README 交互说明同步；HANDOFF 补版本沿革与隐私自检。另在 git 历史层面把个人邮箱全量重写为 noreply |
 
 **演进主线**：单文件能用 → 工程化（模块化 + 打包 + 更新）→ 按真实反馈逐个打补丁
 （高分屏、第三方 PAC、分流策略、交互）→ 打磨观感（圆角、托盘）。每一次修复的
@@ -366,7 +367,7 @@ Form 生命周期、`Application.Run`、退出清理（含更新检查的 Timer 
 
 | 文件 | 说明 |
 | --- | --- |
-| `NASProxyTray.exe` | 单文件，**约 463 KB**（v1.2.7 实测 474,112 字节；不是早期猜测的 10–15 MB，因为 DLL 先压成 ZIP 再 Base64） |
+| `NASProxyTray.exe` | 单文件，**约 463 KB**（v1.2.7 / v1.2.8 实测均为 474,112 字节；不是早期猜测的 10–15 MB，因为 DLL 先压成 ZIP 再 Base64） |
 | `NASProxyTray-v<版本>.zip` | 只含上面那个 exe |
 | `NASProxyTray.exe.sha256` | 校验值 |
 
@@ -481,7 +482,7 @@ TLS 强制 1.2（PS 5.1 默认可能还是 1.0/1.1）。
 
 **两台开发机**（这些数值都会影响命令怎么写，**按当前这台核对，别照抄另一台**）：
 
-| 项 | 笔记本（v1.0.0→v1.2.6 的工作在它上面做） | **台式机（2026-09-24 起接手，v1.2.7 从它发布）** |
+| 项 | 笔记本（v1.0.0→v1.2.6 的工作在它上面做） | **台式机（2026-09-24 起接手，v1.2.7 / v1.2.8 从它发布）** |
 | --- | --- | --- |
 | 系统 | Windows 11 Build 26200 | Windows 11 24H2 |
 | 屏幕 | **3200×2000 @ 200% 缩放**（有效 1600×1000） | 主屏 3440×1440 + 竖屏 1080×1920，**均 @ 100%** |
@@ -594,12 +595,17 @@ export http_proxy= https_proxy= HTTP_PROXY= HTTPS_PROXY=
 git -c http.proxy=http://<NAS:端口> -c https.proxy=http://<NAS:端口> push origin main
 
 export HTTPS_PROXY=http://<NAS:端口> https_proxy=http://<NAS:端口>
-gh release create v1.2.7 dist/NASProxyTray.exe dist/NASProxyTray-v1.2.7.zip \
-  --repo ye1225/NASProxyTray --title "v1.2.7" \
-  --notes-file dist/RELEASE_NOTES-v1.2.7.md --latest
+gh release create v1.2.8 dist/NASProxyTray.exe dist/NASProxyTray-v1.2.8.zip \
+  --repo ye1225/NASProxyTray --title "v1.2.8" \
+  --notes-file dist/RELEASE_NOTES-v1.2.8.md --latest
 ```
 
-已发布：v1.0.0 / v1.2.0 / v1.2.1 / v1.2.2 / v1.2.3 / v1.2.4 / v1.2.5 / v1.2.6 / **v1.2.7**。
+> ⚠️ **构建前先确认没有实例占着 `dist\NASProxyTray.exe`**：正在运行的 exe 会被
+> Windows 锁住，`build.ps1` 删旧 exe 时报 `访问被拒绝`，日志停在 `[5/6]` 却看不出原因。
+> 两个办法：让用户退出托盘程序，或者 `mv dist\NASProxyTray.exe dist\NASProxyTray.exe.inuse`
+> 把文件改名腾位（**正在运行的进程不受影响**，改完即能构建；新 exe 生成后再删那个 `.inuse`）。
+
+已发布：v1.0.0 / v1.2.0 / v1.2.1 / v1.2.2 / v1.2.3 / v1.2.4 / v1.2.5 / v1.2.6 / v1.2.7 / **v1.2.8**。
 
 踩过的坑：
 
@@ -647,7 +653,7 @@ WebView2 版本这类要按机器重新核对（见「环境事实」的两台�
 
 > **台式机（2026-09-24）已经做完的开工准备**：git clone 到位、`gh` 装好并授权 `ye1225`、
 > 推送凭据助手已钉死（见「发布」一节）、`build.ps1` 与 DRYRUN 冒烟验证通过，
-> 并且**已从它发出 v1.2.7** —— 即台式机现在可以直接开发 + 发 Release。
+> 并且**已从它发出 v1.2.7 与 v1.2.8** —— 即台式机现在可以直接开发 + 发 Release。
 > 下次换新机器照上面的三步重来一遍即可。
 
 ---
