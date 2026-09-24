@@ -14,8 +14,8 @@ Windows 托盘工具，一键切换系统代理指向 NAS，支持全局代理�
 
 | 项目 | 值 |
 | --- | --- |
-| 仓库 | https://github.com/ye1225/NASProxyTray |
-| 本地路径 | 笔记本 `D:\Desktop\NASProxyTray`；台式机 `C:\Users\Administrator\Desktop\NASProxyTray` |
+| 仓库 | https://github.com/ye1225/NASProxyTray （**公开仓库**，已做脱敏，约定见「隐私与脱敏」一节） |
+| 本地路径 | 两台机器都是 `<用户目录>\Desktop\NASProxyTray`（笔记本装在 `D:\`，台式机在 `C:\`） |
 | 当前版本 | **v1.2.7**（唯一版本源：仓库根目录 `VERSION` 文件） |
 | 主分支 | `main` |
 | 运行环境 | Windows 10 1809+ / Windows 11 + WebView2 Runtime |
@@ -23,10 +23,33 @@ Windows 托盘工具，一键切换系统代理指向 NAS，支持全局代理�
 
 ---
 
+## 版本沿革（项目是怎么一步步走到现在的）
+
+每一步都有对应 Release，发布说明在 `dist\RELEASE_NOTES-v*.md`（不入库，重新构建后仍可从
+GitHub Release 页面读到）。
+
+| 版本 | 主题 | 关键内容 |
+| --- | --- | --- |
+| **v1.0.0** | 最小可用版 | 单文件 `ProxyTray.ps1`（416 行）+ 纯 WinForms 界面（**不依赖 WebView2**）；只做「双击托盘开关代理 + 改地址」 |
+| **v1.2.0** | 底层重构 | 单文件拆成 `src\` 下 10 个模块 + 薄入口；界面换成 WebView2（HTML/CSS）；**打包成单文件 exe**（`build.ps1` 重写 + 运行时释放资源）；新增检查更新；数据目录统一到 `%LOCALAPPDATA%\NASProxy`；修复高分屏托盘菜单字体双倍放大 |
+| **v1.2.1** | 高分屏修复 | 4K/200% 缩放下菜单文字过大的修复；文档校正到 v1.2.1 的新行为 |
+| **v1.2.2** | 导入第三方 PAC 修复 | **自动把第三方 PAC 里写死的代理地址换成本机配置的地址**（导入 gfw-pac 后 Google 打不开的那个坑） |
+| **v1.2.3** | 内置分流重做 | 默认策略改为「常见国内站直连 + 其余走代理」（703 条清单 + 全部 `.cn`），不必再导入第三方 PAC |
+| **v1.2.4** | 细节 | 开启态按钮的对勾图标放大到与电源图标等大 |
+| **v1.2.5** | 交互简化 | 取消「保存设置」按钮 → **600ms 防抖自动保存** |
+| **v1.2.6** | 回归修复 | 修 v1.2.5 引入的**自动保存无限循环**（`flushSave` 未清 `dirty`），并加 5 秒看门狗 |
+| **v1.2.7** | 圆角 + 托盘交互 | ①窗口圆角改走 **DWM 合成**，消除 1-bit region 锯齿（挖出 ps2exe 谎报系统版本的老 bug）；②**双击托盘=切换代理、单击=开界面**，图标三色区分模式；③收录三轮交互测速脚本 |
+
+**演进主线**：单文件能用 → 工程化（模块化 + 打包 + 更新）→ 按真实反馈逐个打补丁
+（高分屏、第三方 PAC、分流策略、交互）→ 打磨观感（圆角、托盘）。每一次修复的
+「为什么」都记在本文件对应章节里，改代码前先读那一段。
+
+---
+
 ## 目录结构
 
 ```
-D:\Desktop\NASProxyTray\
+<仓库根目录>\
 ├── ProxyTray.ps1                     薄入口：定位 src\ 并按文件名顺序 dot-source
 ├── src\                              ← 真正的实现，10 个模块
 │   ├── 00-boot.ps1                   启动地基（含 DPI 声明、资源释放）
@@ -217,20 +240,20 @@ $pattern = '(?<scheme>\b(?:PROXY|HTTPS|SOCKS5|SOCKS4|SOCKS)\s+)(?<endpoint>[A-Za
 ```
 
 几个容易踩的点：
-- 替换串里的 `$` 必须转义成 `$$`，否则 `192.168.31.126:41634` 会被当成正则反向引用
-  （实际上没有 `$`，但 `server` 里可能有；统一 `.Replace('$','$$')` 最省心）。
+- 替换串里的 `$` 必须转义成 `$$`，否则 `192.168.1.100:7890` 这类地址里的字符会被当成
+  正则反向引用（实际上没有 `$`，但 `server` 里可能有；统一 `.Replace('$','$$')` 最省心）。
 - 正则要求「方案关键字 + 空白 + 主机:端口」，所以 `DIRECT`、`http://host:port`
   这类不会被误改。
 - 只用 .NET 静态 `[regex]::Replace`，**不要用 `-replace`**（后者对 `$` 的处理更绕）。
 - 不猜协议：PAC 写 `SOCKS5` 就还是 `SOCKS5`，只换地址。发现的方案会写进日志。
 - 关掉开关（`pacRewrite=false`）就完全保留原文件。
 
-实测（v1.2.2，DRYRUN + 用户真实的 `D:\Downloads\gfw.pac`）：
+实测（v1.2.2，DRYRUN + 一份真实的第三方 PAC）：
 
 ```
-开关开 → var proxy = "PROXY 192.168.31.126:41634";   残留 127.0.0.1:3128 = 0 处
-开关关 → var proxy = "PROXY 127.0.0.1:3128";         残留 127.0.0.1:3128 = 1 处
-日志   → [ProxyTray] PAC 代理地址替换 1 处: 127.0.0.1:3128 -> 192.168.31.126:41634  方案: PROXY
+开关开 → var proxy = "PROXY 192.168.1.100:7890";   残留 127.0.0.1:3128 = 0 处
+开关关 → var proxy = "PROXY 127.0.0.1:3128";       残留 127.0.0.1:3128 = 1 处
+日志   → [ProxyTray] PAC 代理地址替换 1 处: 127.0.0.1:3128 -> 192.168.1.100:7890  方案: PROXY
 ```
 
 
@@ -343,7 +366,7 @@ Form 生命周期、`Application.Run`、退出清理（含更新检查的 Timer 
 
 | 文件 | 说明 |
 | --- | --- |
-| `NASProxyTray.exe` | 单文件，约 **422 KB**（不是早期猜测的 10–15 MB，因为 DLL 先压成 ZIP 再 Base64） |
+| `NASProxyTray.exe` | 单文件，**约 463 KB**（v1.2.7 实测 474,112 字节；不是早期猜测的 10–15 MB，因为 DLL 先压成 ZIP 再 Base64） |
 | `NASProxyTray-v<版本>.zip` | 只含上面那个 exe |
 | `NASProxyTray.exe.sha256` | 校验值 |
 
@@ -467,16 +490,16 @@ TLS 强制 1.2（PS 5.1 默认可能还是 1.0/1.1）。
 | ps2exe | 1.0.18 | 1.0.18（`D:\Documents\WindowsPowerShell\Modules\`） |
 | git | 2.55.0.windows.5 | 2.55.0.windows.3 |
 | `gh` CLI | ✅ 2.101.0，`%LOCALAPPDATA%\Programs\gh\gh.exe`，已授权 `ye1225` | ✅ 同上（2026-09-24 装好并授权） |
-| 用户目录 | `C:\Users\YE` | `C:\Users\Administrator` |
+| 用户目录 | `%USERPROFILE%`（账号名两位缩写） | `%USERPROFILE%`（账号名 Administrator，系统默认名） |
 
 ### 台式机实测（2026-09-24）
 
-- 网段 `192.168.31.185/24`（与笔记本同一网段），系统代理已指向 NAS
-  `192.168.31.126:41634`（`ProxyEnable=1`、无 `AutoConfigURL`），**实测可达**
-  —— 也就是说台式机已经在用这台 NAS 代理，只是没用本程序托管
+- 网段与笔记本是**同一网段**，台式机的系统代理已指向那台 NAS 代理机（`ProxyEnable=1`、
+  无 `AutoConfigURL`，地址形如 `192.168.x.x:<端口>`），**实测可达**
+  —— 也就是说台式机已经在用那台 NAS 代理，只是没用本程序托管
 - `build.ps1` **1.9 秒**跑通（11 个模块 / 1780 行）；干净目录 DRYRUN 冒烟全绿：
-  `packed=True` `content=runtime\1.2.6` `dpiAware=PerMonitorV2` `dpiScale=1`
-  `INIT OK browser=153.0.4234.48`；`runtime\1.2.6\` 下 3 个 DLL + `index.html` + `.ok` 齐全，
+  `packed=True` `content=runtime\<当时的版本号>` `dpiAware=PerMonitorV2` `dpiScale=1`
+  `INIT OK browser=153.0.4234.48`；`runtime\<版本>\` 下 3 个 DLL + `index.html` + `.ok` 齐全，
   注册表 BEFORE/AFTER 完全一致（没污染用户现用的系统代理）
 - **两个屏都是 100% 缩放** → **高 DPI 路径在台式机验不到**，要复现得手动把缩放调上去
 - 杀软：**360 也在**（`360Safe` / `360sd` / `360DrvMgr`），Defender 实时防护是关的
@@ -535,25 +558,27 @@ $errs = $null
 ```
 
 **日志**：`ProxyTray.log`（数据目录下），超过 512 KB 自动清空。
-正常启动的日志长这样：
+正常启动的日志长这样（`dpiScale` / `initSize` / 落点 / `browser` 随机器不同，
+下面两行分别对应 200% 笔记本与 100% 台式机）：
 
 ```
-[ProxyTray] mode=PS1 self=...\ProxyTray.ps1
+[ProxyTray] mode=PS1 self=...\ProxyTray.ps1        ← exe 模式下是 mode=EXE
 [ProxyTray] root=...  data=...
 [ProxyTray] apartment=STA
-[ProxyTray] version=1.2.6  packed=False  console=True
+[ProxyTray] version=1.2.7  packed=False  console=True
 [ProxyTray] content=...          ← packed=True 时这里是 runtime\<版本>\
 [ProxyTray] dpiAware=PerMonitorV2
 [ProxyTray] load 10-native.ps1   ← 依次 load 到 90-main.ps1
-[ProxyTray] dpiScale=2  initSize=840x1000
+[ProxyTray] dpiScale=2  initSize=840x1000        ← 200% 笔记本
+[ProxyTray] dpiScale=1  initSize=420x500         ← 100% 台式机
 [ProxyTray] ready. window @ (2336,896) size 840x1000
-[ProxyTray] INIT OK, browser = 145.0.3800.97
-[ProxyTray] 已是最新版本 v1.2.6
+[ProxyTray] INIT OK, browser = 153.0.4234.48
+[ProxyTray] 已是最新版本 v1.2.7
 ```
 
 **单文件 exe 干净目录验证**：把 exe 单独拷到一个空目录再跑，
-确认日志里出现 `packed=True`、`content=<数据目录>\runtime\1.2.6`、`INIT OK`，
-且 `runtime\1.2.6\.ok` 已生成。
+确认日志里出现 `packed=True`、`content=<数据目录>\runtime\<VERSION 的值>`、`INIT OK`，
+且 `runtime\<VERSION 的值>\.ok` 已生成。
 
 ---
 
@@ -590,7 +615,7 @@ gh release create v1.2.7 dist/NASProxyTray.exe dist/NASProxyTray-v1.2.7.zip \
 - **推送凭据（2026-09-24 已钉死）**：`~/.gitconfig` 的 `credential.helper` 第一条是
   **空值**（重置 helper 列表，清掉 PortableGit 系统级塞入的 `helper-selector` ——
   它就是反复弹 `CredentialHelperSelector` 框的元凶），第二条是
-  `!"C:/Users/Administrator/AppData/Local/Programs/gh/gh.exe" auth git-credential`
+  `!"%LOCALAPPDATA%/Programs/gh/gh.exe" auth git-credential`
   （绝对路径，防 PATH 裁剪）。push 不再需要任何 `-c credential.helper`；
   若弹框复发先 `git config --show-origin --get-all credential.helper` 查插队来源
 
@@ -621,8 +646,9 @@ gh release create v1.2.7 dist/NASProxyTray.exe dist/NASProxyTray-v1.2.7.zip \
 WebView2 版本这类要按机器重新核对（见「环境事实」的两台机器对照表）。
 
 > **台式机（2026-09-24）已经做完的开工准备**：git clone 到位、`gh` 装好并授权 `ye1225`、
-> `credential.helper=manager` 已配、`build.ps1` 与 DRYRUN 冒烟验证通过 ——
-> 即台式机现在可以直接开发 + 发 Release 了。下次换新机器照上面的三步重来一遍即可。
+> 推送凭据助手已钉死（见「发布」一节）、`build.ps1` 与 DRYRUN 冒烟验证通过，
+> 并且**已从它发出 v1.2.7** —— 即台式机现在可以直接开发 + 发 Release。
+> 下次换新机器照上面的三步重来一遍即可。
 
 ---
 
@@ -634,10 +660,30 @@ git add . && git commit -m "..." && git push  # 收工
 ```
 
 `.gitignore` 已排除：`dist/`、`build/`、`*.exe`、`*.log`、`config.json`、`.webview2/`、
-`update_check.json`、`.workbuddy/`。
+`update_check.json`、`.workbuddy/`、`会话存档/`、`本机环境参考/`。
 
 **注意 `lib/` 下的 3 个 DLL 是入库的**（`.gitignore` 刻意没写 `*.dll`）。
 `app.ico` 也保留，`build.ps1` 依赖它。
+
+### 提交前的隐私自检（**入库前必跑**）
+
+仓库是公开的，提交前扫一遍有没有把「本机事实」写进文档/代码：
+
+```bash
+# 真实地址 / 邮箱 / 绝对路径 / 令牌
+git grep -n -I -E "192\.168\.[0-9]+\.[0-9]+|100\.[0-9]+\.[0-9]+\.[0-9]+|@(gmail|qq|outlook)\.com|[A-Za-z]:\\\\Users\\\\|ghp_|github_pat_" -- .
+```
+
+补充两条经验：
+
+- **示例一律用 `192.168.1.100:7890`**（README / HANDOFF / `src\20-config.ps1` 默认值 /
+  `ui\index.html` 的 `DEFAULTS` 都必须一致），真机地址只留在本机配置里，不进仓库
+- **提交者邮箱也算隐私**，且**写在每一个提交的对象里、改文件改不掉**。本仓库曾在
+  2026-09-24 用 `git filter-branch --env-filter` 把 25 个提交里的个人邮箱批量改成
+  GitHub noreply 地址，并 force-push 了 branch 与全部 tag（内容零变化，
+  `git diff <旧HEAD> <新HEAD>` 为空）。**预防**：`git config user.email`
+  用 `37562835+ye1225@users.noreply.github.com`，并到 GitHub 设置里打开
+  「Keep my email addresses private」+「Block command line pushes that expose my email」
 
 ---
 
@@ -646,7 +692,7 @@ git add . && git commit -m "..." && git push  # 收工
 | 目标 | 状态 | 落点 |
 | --- | --- | --- |
 | 1. 优化应用逻辑（拆模块） | ✅ | `src\` 下 10 个模块 + 薄入口，原 1366 行单文件已拆完 |
-| 2. 打包成单 exe | ✅ | `build.ps1` 重写；内嵌资源运行时释放；约 453 KB 单文件 |
+| 2. 打包成单 exe | ✅ | `build.ps1` 重写；内嵌资源运行时释放；约 463 KB 单文件（v1.2.7） |
 | 3. 4K 显示优化 | ✅ | Per-Monitor V2 + DpiScale 几何换算，本机 200% 缩放下清晰 |
 | 4. 可升级架构 | ✅ | `80-update.ps1`：静默检查 + 气泡提示 + 菜单项，不自动替换 |
 

@@ -508,10 +508,10 @@ textarea {
             <label class="field-label">代理服务器</label>
             <div class="proxy-input">
                 <div class="proxy-left">
-                    <input type="text" id="server" class="proxy-ip" value="192.168.31.126" spellcheck="false">
+                    <input type="text" id="server" class="proxy-ip" value="192.168.1.100" spellcheck="false">
                 </div>
                 <div class="proxy-right">
-                    <input type="text" id="port" class="proxy-port" value="41634" inputmode="numeric">
+                    <input type="text" id="port" class="proxy-port" value="7890" inputmode="numeric">
                 </div>
                 <span class="proxy-sep">:</span>
                 <span class="conn-inline testing" id="connInline">
@@ -562,7 +562,7 @@ textarea {
                     <div class="pac-panel" data-panel="local">
                         <label class="sub-label">PAC 文件路径</label>
                         <div class="file-picker">
-                            <input type="text" id="localPacPath" placeholder="C:\Users\YE\gfwlist.pac" readonly>
+                            <input type="text" id="localPacPath" placeholder="C:\Users\你的用户名\gfwlist.pac" readonly>
                             <button class="browse-btn" id="browsePac" type="button">浏览</button>
                         </div>
                         <div class="pac-hint">
@@ -619,8 +619,8 @@ textarea {
 
 <script>
 const DEFAULTS = {
-    server: '192.168.31.126',
-    port: '41634',
+    server: '192.168.1.100',
+    port: '7890',
     override: 'localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*',
     domains: '*.google.com\n*.googleapis.com\n*.youtube.com\n*.googlevideo.com\n*.ytimg.com\n*.github.com\n*.githubusercontent.com\n*.openai.com\n*.chatgpt.com\n*.anthropic.com\n*.claude.ai\n*.twitter.com\n*.x.com\n*.facebook.com\n*.instagram.com\n*.telegram.org\n*.wikipedia.org\n*.reddit.com\n*.medium.com\n*.discord.com\n*.notion.so\n*.docker.com\n*.npmjs.com\n*.stackoverflow.com\n*.cloudflare.com\n*.amazonaws.com\n*.gstatic.com\n*.ggpht.com\n*.t.me\n*.whatsapp.com\n*.signal.org\n*.protonmail.com'
 };
