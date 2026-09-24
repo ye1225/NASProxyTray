@@ -76,26 +76,40 @@ $script:reallyExit = $false
 $script:showTimer  = $null
 
 # ---------- 圆角工具 ----------
+# Win11：DWM 合成圆角（抗锯齿）；Win10 / DWM 失败：回退 1-bit region（有锯齿）
 function Set-FormRoundCorners {
     param([int]$Radius = $script:cornerRadius)
-    if ($script:useDwmRound) { return }
     try {
-        $osBuild = [System.Environment]::OSVersion.Version.Build
+        if ($script:useDwmRound) {
+            # 句柄可能被 WinForms 重建（如 Opacity 动画改样式）——核对 THICKFRAME 还在不在
+            $still = $false
+            try { $still = (([NativeRound]::GetStyle($form.Handle) -band 0x40000) -ne 0) } catch { }
+            if ($still) {
+                try { [void][NativeRound]::SetWindowCornerPreference($form.Handle, 2) } catch { }
+                return
+            }
+            Write-Host "[ProxyTray] DWM round lost (handle rebuilt) -> re-enabling" -ForegroundColor DarkGray
+            $script:useDwmRound = $false
+        }
+        # Environment.OSVersion 在 ps2exe exe 里谎报 build 9200，必须用 RtlGetVersion
+        $osBuild = [NativeRound]::RealBuildNumber()
+        if ($osBuild -le 0) { $osBuild = [System.Environment]::OSVersion.Version.Build }
         if ($osBuild -ge 22000) {
-            try {
-                $hr = [NativeRound]::SetWindowCornerPreference($form.Handle, $script:dwmCornerType)
-                if ($hr -eq 0) {
-                    $script:useDwmRound = $true
-                    [void][NativeRound]::SetWindowRgn($form.Handle, [IntPtr]::Zero, $true)
-                    return
-                }
-            } catch { }
+            $diag = ''
+            try { $diag = [NativeRound]::EnableDwmRound($form.Handle) } catch { $diag = "ps:" + $_.Exception.GetType().Name }
+            if ($diag -eq 'OK') {
+                $script:useDwmRound = $true
+                return
+            }
+            Write-Host "[ProxyTray] DWM round failed: $diag -> fallback region" -ForegroundColor DarkGray
         }
         $w = $form.Width; $h = $form.Height
         if ($w -lt 10 -or $h -lt 10) { return }
         $rgn = [NativeRound]::CreateRoundRectRgn(0, 0, $w + 1, $h + 1, $Radius, $Radius)
         [void][NativeRound]::SetWindowRgn($form.Handle, $rgn, $true)
-    } catch { }
+    } catch {
+        Write-Host "[ProxyTray] roundcorners exc: $($_.Exception.GetType().Name) $($_.Exception.Message)" -ForegroundColor DarkGray
+    }
 }
 
 function Reset-ToBottomRight {
@@ -108,6 +122,9 @@ function Reset-ToBottomRight {
     $script:baseBottom = $T + $h
     Set-FormRoundCorners
 }
+
+# 尽早启用 DWM 圆角：句柄已建（本文件 38 行），窗口 Opacity=0 期间改样式不闪
+try { Set-FormRoundCorners } catch { Write-Host "[ProxyTray] early roundcorners failed: $_" -ForegroundColor DarkGray }
 
 # ---------- 尺寸防抖 Timer ----------
 $script:pendingW = 0

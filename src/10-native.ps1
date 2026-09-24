@@ -43,6 +43,11 @@ public static class NativeDrag {
 '@
 
 # ---------- 圆角 ----------
+# 两条路径：
+#   Win11 (build>=22000)：WS_THICKFRAME + 子类化(WM_NCCALCSIZE 客户区撑满 /
+#   WM_NCHITTEST 禁 resize 热区) + DwmSetWindowAttribute(ROUND) —— DWM 合成
+#   的 GPU 抗锯齿圆角；无边框窗口必须带 WS_THICKFRAME，DWM 才肯画圆角。
+#   Win10 / DWM 失败：回退 CreateRoundRectRgn（1-bit 区域，天生有锯齿）。
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
@@ -57,6 +62,98 @@ public static class NativeRound {
     public static int SetWindowCornerPreference(IntPtr hwnd, int preference) {
         int val = preference;
         return DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref val, sizeof(int));
+    }
+
+    private const int GWL_STYLE   = -16;
+    private const int GWL_WNDPROC = -4;
+    private const long WS_THICKFRAME = 0x00040000;
+    private const uint SWP_NOSIZE = 0x0001;
+    private const uint SWP_NOMOVE = 0x0002;
+    private const uint SWP_NOZORDER = 0x0004;
+    private const uint SWP_FRAMECHANGED = 0x0020;
+    private const uint WM_NCCALCSIZE = 0x0083;
+    private const uint WM_NCHITTEST  = 0x0084;
+
+    private delegate IntPtr WndProcDelegate(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    private static extern IntPtr GetWindowLongPtrW(IntPtr hWnd, int nIndex);
+    public static long GetStyle(IntPtr hwnd) {
+        try { return GetWindowLongPtrW(hwnd, GWL_STYLE).ToInt64(); } catch { return 0; }
+    }
+
+    // 真实系统 build 号。Environment.OSVersion 受 exe 清单 supportedOS 声明影响：
+    // ps2exe 生成的 exe 没有该声明，会谎报 build 9200 (Win8)，导致永远进不了 Win11 分支。
+    [StructLayout(LayoutKind.Sequential)]
+    private struct OSVERSIONINFOEXW {
+        public uint dwOSVersionInfoSize;
+        public uint dwMajorVersion;
+        public uint dwMinorVersion;
+        public uint dwBuildNumber;
+        public uint dwPlatformId;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+        public string szCSDVersion;
+    }
+    [DllImport("ntdll.dll")]
+    private static extern int RtlGetVersion(ref OSVERSIONINFOEXW v);
+    public static int RealBuildNumber() {
+        try {
+            OSVERSIONINFOEXW v = new OSVERSIONINFOEXW();
+            v.dwOSVersionInfoSize = (uint)Marshal.SizeOf(typeof(OSVERSIONINFOEXW));
+            if (RtlGetVersion(ref v) == 0) { return (int)v.dwBuildNumber; }
+        } catch { }
+        return 0;
+    }
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
+    private static extern IntPtr SetWindowLongPtrW(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
+    [DllImport("user32.dll")]
+    private static extern IntPtr CallWindowProcW(IntPtr lpPrevWndFunc, IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    private static IntPtr _oldProc = IntPtr.Zero;
+    private static WndProcDelegate _hook;   // 引用保活，防止被 GC 回收后崩溃
+
+    // NCCALCSIZE 返回 0 → 客户区铺满整个窗口（抵消 THICKFRAME 的 7px 框架）；
+    // NCHITTEST 恒返 HTCLIENT → 边缘不出现系统 resize 热区（拖动仍走 StartDrag）。
+    private static IntPtr BorderlessProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam) {
+        if (msg == WM_NCCALCSIZE && wParam != IntPtr.Zero) { return IntPtr.Zero; }
+        if (msg == WM_NCHITTEST) { return (IntPtr)1; }
+        return CallWindowProcW(_oldProc, hWnd, msg, wParam, lParam);
+    }
+
+    // 返回诊断字符串："OK" 或失败原因；失败时回滚 hook 与样式
+    public static string EnableDwmRound(IntPtr hwnd) {
+        if (_oldProc != IntPtr.Zero) { return "OK"; }
+        IntPtr saved = IntPtr.Zero;
+        try {
+            saved = GetWindowLongPtrW(hwnd, GWL_WNDPROC);
+            if (saved == IntPtr.Zero) { return "getproc=0"; }
+            _hook = BorderlessProc;
+            IntPtr fp;
+            try { fp = Marshal.GetFunctionPointerForDelegate(_hook); }
+            catch (Exception e) { _hook = null; return "delegate:" + e.GetType().Name; }
+            SetWindowLongPtrW(hwnd, GWL_WNDPROC, fp);
+            _oldProc = saved;
+            long st = GetWindowLongPtrW(hwnd, GWL_STYLE).ToInt64();
+            SetWindowLongPtrW(hwnd, GWL_STYLE, (IntPtr)(st | WS_THICKFRAME));
+            SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+            int hr = SetWindowCornerPreference(hwnd, 2);
+            SetWindowRgn(hwnd, IntPtr.Zero, true);
+            if (hr != 0) {
+                // 回滚：卸 hook、去 THICKFRAME
+                SetWindowLongPtrW(hwnd, GWL_WNDPROC, _oldProc);
+                _oldProc = IntPtr.Zero; _hook = null;
+                SetWindowLongPtrW(hwnd, GWL_STYLE, (IntPtr)st);
+                SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+                return "dwm=0x" + hr.ToString("X8");
+            }
+            return "OK";
+        } catch (Exception e) {
+            if (_oldProc != IntPtr.Zero) { try { SetWindowLongPtrW(hwnd, GWL_WNDPROC, _oldProc); } catch { } }
+            _oldProc = IntPtr.Zero; _hook = null;
+            return "exc:" + e.GetType().Name;
+        }
     }
 }
 '@
