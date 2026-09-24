@@ -19,6 +19,13 @@ import re
 import subprocess
 import sys
 
+# stdout 编码固定成 UTF-8：Windows 上默认 cp936，中文经管道 / 重定向后被按 UTF-8
+# 解读就整段乱码（AI 抓日志时看不到中文结论）。Python 3.7+ 有 reconfigure，老版本跳过。
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 # ---------------------------------------------------------------- 规则
 
 # 允许出现的「中性示例值」与结构性常量（不算泄漏）
