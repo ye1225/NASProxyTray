@@ -1,7 +1,8 @@
 ﻿# NASProxyTray · 交接文档
 
 > 交接给下一个接手的人（或 AI）。
-> **当前状态：v1.2.6 已发布（修复自动保存无限循环）。**
+> **当前状态：v1.2.6 已发布。此后两个提交已实机验证待发 v1.2.7：**
+> **`c948451` 圆角改走 DWM 合成（消锯齿，含 ps2exe 版本谎报的修复）；`26bac16` 托盘双击切代理 + 图标三色。**
 
 ---
 
@@ -43,6 +44,7 @@ D:\Desktop\NASProxyTray\
 ├── VERSION                           版本号唯一来源
 ├── app.ico                           程序图标（build.ps1 依赖）
 ├── debug.bat                         带日志调试入口
+├── speedtest3.py / .bat              三轮交互测速（全局/规则/关闭），双击 bat 按提示操作
 ├── LICENSE                           MIT
 └── README.md
 
@@ -232,17 +234,28 @@ $pattern = '(?<scheme>\b(?:PROXY|HTTPS|SOCKS5|SOCKS4|SOCKS)\s+)(?<endpoint>[A-Za
 
 
 ### `40-icon.ps1`
-`New-BallIcon -Color <Color>` 动态画圆点图标（灰 = 关闭，绿 = 开启）。
+`New-BallIcon -Color <Color>` 动态画圆点图标，**三色**（灰 = 关闭，绿 = 规则分流，蓝 = 全局代理）。
+颜色选择在 `Update-TrayIcon`（60-tray）里按 `CurrentConfig.mode` 做。
 
 ### `50-window.ps1`
 工作区与尺寸基准 / Form / WebView2 宿主 / 圆角 / **尺寸防抖（120ms Timer）** / 失焦延迟隐藏（150ms）/ `DpiChanged` 处理。
+圆角两条路径（实现见 `10-native.ps1` 的 `NativeRound`）：Win11 用 `WS_THICKFRAME` + 窗口子类化
+（NCCALCSIZE 客户区撑满 / NCHITTEST 禁 resize）+ DWM 合成抗锯齿圆角，**建句柄后尽早启用**、
+句柄被 WinForms 重建时自愈；Win10 / DWM 失败回退 `CreateRoundRectRgn`（1-bit，有锯齿）。
+⚠️ 判系统版本必须用 `RealBuildNumber()`（ntdll `RtlGetVersion`）—— ps2exe 的 exe 里
+`Environment.OSVersion` 谎报 build 9200（见「环境事实」坑清单）。
 详见下方「高 DPI」。
 
 ### `60-tray.ps1`
-NotifyIcon + 深色中文右键菜单。菜单项顺序：
+NotifyIcon + 深色中文右键菜单。**左键：单击 = 立即打开主界面；双击 = 切换代理开/关**
+（`Invoke-ProxyToggle`，与前端 `toggleProxy` 同一套动作：落盘 → `Apply-ProxyConfig` →
+图标 → PostWebMessage('state')）。双击不闪界面的原理：双击的两条消息连续派发，
+第一次点击 Show 的窗口还没来得及绘制就被收起（`trayShownByClick` 标记）。
+菜单项顺序：
 
 ```
 [发现新版本 vX.Y.Z · 点击下载]   ← 默认隐藏，仅 80-update 发现新版时显示
+开启代理 / 关闭代理              ← 文字随状态变（menu_Opened 里刷新）
 显示 / 隐藏窗口
 打开开发者工具
 ──────────
