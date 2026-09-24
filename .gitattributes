@@ -1,0 +1,16 @@
+# ── 行尾 ────────────────────────────────────────────────────────────────
+# 钩子与 shell 脚本**必须**是 LF。
+# 本机 core.autocrlf=true（Windows 默认），若不锁定，`.githooks\pre-push`
+# 会在 checkout 时被写成 CRLF —— shebang 变成 `#!/bin/sh\r`，钩子直接失效，
+# 而且失效是**静默**的（推送照常过），等于隐私闸门没了还不知道。
+.githooks/*  text eol=lf
+*.sh         text eol=lf
+
+# Python / PowerShell / Markdown 用 CRLF 无害，交给 git 的默认行为处理。
+
+# ── 二进制（别做行尾转换、别试图 diff）─────────────────────────────────
+*.dll  binary
+*.ico  binary
+*.exe  binary
+*.zip  binary
+*.png  binary

@@ -1,0 +1,112 @@
+#!/bin/sh
+# ============================================================================
+#  推送前隐私闸门（pre-push hook）
+#
+#  作用：把「上传前必须做隐私审查」从**文档纪律**变成**硬拦截** ——
+#        检查不过就推不上去，不需要靠人记得。
+#
+#  启用（每个 clone 只需做一次；收工/开工脚本会自动设置）：
+#      git config core.hooksPath .githooks
+#  临时跳过（**仅在确知没有隐私风险时用**）：
+#      git push --no-verify
+#
+#  三级严重度：
+#      隐私扫描（私网地址 / 个人邮箱 / 绝对用户路径 / 令牌 / 机器名） → 不过就拦
+#      提交者邮箱（作者与提交者都要是 noreply）                        → 不过就拦
+#      陈旧信息巡检（文档里的版本号、产物体积对不上）                   → 只提示
+#
+#  检查器：tools/repo_hygiene.py（与 ~/.workbuddy/skills/project-handoff 下的
+#          上游副本逐字节相同，可用 md5 核对；只依赖 Python 标准库）
+# ============================================================================
+
+set -u
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || root=""
+if [ -z "$root" ]; then
+    echo "[隐私闸门] 不在 git 仓库里，跳过检查。"
+    exit 0
+fi
+
+# ---- 定位检查器：项目内副本优先，其次用户级 skill，都没有就明确告知 ----
+scan="$root/tools/repo_hygiene.py"
+if [ ! -f "$scan" ]; then
+    scan="$HOME/.workbuddy/skills/project-handoff/scripts/repo_hygiene.py"
+fi
+if [ ! -f "$scan" ]; then
+    echo ""
+    echo "[隐私闸门] ⚠ 找不到检查器 tools/repo_hygiene.py —— **本次推送未做隐私检查**。"
+    echo "           按 skill「project-handoff」补上这个文件（或从模板复制）。"
+    echo ""
+    exit 0
+fi
+
+# ---- 定位解释器：Python 优先（纯标准库），退到 PowerShell 包装脚本 ----
+PYBIN=""; PYARG=""
+for c in python3 python; do
+    if command -v "$c" >/dev/null 2>&1 && \
+       "$c" -c 'import sys; sys.exit(0 if sys.version_info[0] == 3 else 1)' >/dev/null 2>&1; then
+        PYBIN="$c"; break
+    fi
+done
+if [ -z "$PYBIN" ] && command -v py >/dev/null 2>&1 && \
+   py -3 -c 'import sys' >/dev/null 2>&1; then
+    PYBIN="py"; PYARG="-3"
+fi
+
+PSBIN=""
+if [ -z "$PYBIN" ]; then
+    for c in powershell.exe powershell pwsh.exe pwsh; do
+        if command -v "$c" >/dev/null 2>&1; then PSBIN="$c"; break; fi
+    done
+fi
+
+if [ -z "$PYBIN" ] && [ -z "$PSBIN" ]; then
+    echo ""
+    echo "[隐私闸门] ⚠ 既没有 Python 3 也没有 PowerShell —— **本次推送未做隐私检查**。"
+    echo "           装一个 Python 3 即可（检查器只用标准库）。"
+    echo ""
+    exit 0
+fi
+
+checker() {
+    # $1 = 检查模式（privacy / emails / stale）
+    if [ -n "$PYBIN" ]; then
+        # shellcheck disable=SC2086
+        "$PYBIN" $PYARG "$scan" "$1" --repo "$root"
+    else
+        "$PSBIN" -NoProfile -ExecutionPolicy Bypass \
+            -File "$root/tools/privacy-scan.ps1" -Root "$root" -Mode "$1"
+    fi
+}
+
+echo ""
+echo "══ 推送前隐私闸门 ══════════════════════════════════════════"
+echo "   仓库：$root"
+echo "   确知没有隐私风险时可用：git push --no-verify"
+echo ""
+
+failed=0
+
+checker privacy; [ $? -ne 0 ] && failed=1
+echo ""
+checker emails;  [ $? -ne 0 ] && failed=1
+
+echo ""
+echo "── 陈旧信息巡检（只提示，不拦本次推送）─────────────────────"
+checker stale || echo "   ↑ 上面是文档滞后提示，改不改都不影响推送，但建议顺手改掉。"
+
+echo ""
+if [ "$failed" -ne 0 ]; then
+    echo "╔══════════════════════════════════════════════════════════╗"
+    echo "║  推送已拦下：隐私检查未通过                              ║"
+    echo "╠══════════════════════════════════════════════════════════╣"
+    echo "║  逐条处理上面标 ❌ 的地方，然后重新 push。               ║"
+    echo "║  真需要忽略（强烈不建议）：git push --no-verify          ║"
+    echo "╚══════════════════════════════════════════════════════════╝"
+    echo ""
+    exit 1
+fi
+
+echo "✅ 隐私检查通过，继续推送。"
+echo ""
+exit 0
