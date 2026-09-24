@@ -88,11 +88,10 @@ if ($py) {
 }
 
 # ---------- 降级：内置最小正则（**规则集以 repo_hygiene.py 为准，这里只做兜底**）----------
-if (-not $Quiet) {
-    Write-Host '[隐私检查] ⚠ 找不到 Python 3 —— 退到内置**最小**正则检查（能力弱于完整检查器）。' -ForegroundColor Yellow
-    Write-Host '           装上 Python 3 即可恢复完整检查（只用标准库）。' -ForegroundColor Yellow
-    Write-Host ''
-}
+# 注意：**降级告警不受 -Quiet 影响** —— 检查能力变弱必须让人看见，不能静默通过。
+Write-Host '[隐私检查] ⚠ 找不到 Python 3 —— 退到内置**最小**正则检查（能力弱于完整检查器）。' -ForegroundColor Yellow
+Write-Host '           装上 Python 3 即可恢复完整检查（只用标准库）。' -ForegroundColor Yellow
+Write-Host ''
 
 $git = Get-Command git -ErrorAction SilentlyContinue
 if (-not $git) {
