@@ -70,6 +70,8 @@ GitHub Release 页面读到）。
 ├── app.ico                           程序图标（build.ps1 依赖）
 ├── debug.bat                         带日志调试入口
 ├── speedtest3.py / .bat              三轮交互测速（全局/规则/关闭），双击 bat 按提示操作
+├── docs\                             需求与决策记录（见下）
+│   └── 需求与决策.md                 每条需求的原话 + 逐条决策与理由，**只追加不改历史**
 ├── LICENSE                           MIT
 └── README.md
 
@@ -81,6 +83,21 @@ GitHub Release 页面读到）。
   任何文件）：`ProxyTray.log` / `config.json` / `proxy.pac` / `proxy_remote.pac` /
   `update_check.json` / `runtime\<版本>\` / `.webview2\`
 ```
+
+### 三份文档怎么分工
+
+判断方法一句话：**把这句话搬到另一个完全不同的项目里，还成立吗？**
+
+| 内容 | 写在哪 | 入库 |
+| --- | --- | --- |
+| 当前架构、约定、构建发布、**当前范围与结论** | **本文件** | 是（公开前脱敏） |
+| **需求原话与逐条决策**（含被打断/被砍掉的） | `docs\需求与决策.md` | 是 |
+| 该项目本机细节、命令备忘、逐日流水 | `.workbuddy\memory\` | **否**（被 git 忽略） |
+| 跨项目通用经验（换了项目也成立） | `D:\WorkBuddy\MEMORY.md` | 否 |
+
+> **别把同一件事写在两处** —— 早晚互相矛盾，而且不可能同时维护。
+> 本文件只写**「现在是什么样、为什么」**；需求的来龙去脉和取舍过程全部在
+> `docs\需求与决策.md`，两边不互相抄。
 
 ---
 
@@ -664,6 +681,9 @@ WebView2 版本这类要按机器重新核对（见「环境事实」的两台�
 git pull --rebase origin main                 # 开工前
 git add . && git commit -m "..." && git push  # 收工
 ```
+
+**每次提交前问一句**：这次改动对应的需求记进 `docs\需求与决策.md` 了吗？
+需求有变就**追加一条**（并注明取代了哪条），本文件的相关章节同步更新 —— 落纸，别留「下次再说」。
 
 `.gitignore` 已排除：`dist/`、`build/`、`*.exe`、`*.log`、`config.json`、`.webview2/`、
 `update_check.json`、`.workbuddy/`、`会话存档/`、`本机环境参考/`。
