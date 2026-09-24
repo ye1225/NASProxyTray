@@ -1,5 +1,5 @@
 ﻿# ── src/40-icon.ps1 · 托盘图标绘制 ──
-# 按颜色生成圆形图标位图（灰=已关闭 / 绿=已开启）
+# 按颜色生成圆形图标位图（灰=已关闭 / 绿=规则分流已开启 / 蓝=全局代理已开启）
 
 function New-BallIcon {
     param([System.Drawing.Color]$Color)
