@@ -1,3 +1,19 @@
+# ── 行尾总闸（2026-10-23 统一加）────────────────────────────────────────
+# 为什么加：本机 core.autocrlf=true，检出时会把文本写成 CRLF。于是同一份文件
+# 在不同机器 / 从 NAS 侧（SSH、Linux、容器）看，就变成"被修改"——增删行数
+# 完全相等、内容零差异，纯粹的行尾假象，白占 diff、真改动被淹没。
+# 这里显式声明 eol=lf，从此不再依赖任何一台机器的 core.autocrlf 配置。
+# 规则是"最后匹配的赢"，下方各条会覆盖本行（尤其是 .bat/.cmd/.reg 和
+# 008 的现场样例、010 的 PanoSim 数据这类必须字节原样的东西）。
+# ──────────────────────────────────────────────────────────────────────
+* text=auto eol=lf
+
+# Windows 原生格式对 LF 敏感：cmd.exe 会把 LF 的 .bat 当一整行解析，
+# regedit 对行尾也挑剔。必须 CRLF（这几条放在总闸之后才生效）。
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.reg  text eol=crlf
+
 # ── 行尾 ────────────────────────────────────────────────────────────────
 # 钩子与 shell 脚本**必须**是 LF。
 # 本机 core.autocrlf=true（Windows 默认），若不锁定，`.githooks\pre-push`
@@ -6,7 +22,7 @@
 .githooks/*  text eol=lf
 *.sh         text eol=lf
 
-# Python / PowerShell / Markdown 用 CRLF 无害，交给 git 的默认行为处理。
+# Python / PowerShell / Markdown / JSON 一律跟随上面的总闸（LF）。
 
 # ── 二进制（别做行尾转换、别试图 diff）─────────────────────────────────
 *.dll  binary
