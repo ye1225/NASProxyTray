@@ -10,6 +10,11 @@
 
 只依赖标准库。privacy 只扫「被 git 跟踪的文件」（即真正会公开的内容）。
 退出码：0 = 干净，1 = 有发现（便于接进 CI / 提交前钩子）。
+
+⚠️ 铁律：宁可报「这个文件没扫到」，也绝不把「没扫过」当成「扫过且干净」。
+   本脚本历史上两次静默漏扫，都是这个模式下藏了很久才被发现：
+     ① git ls-files 对中文名路径做八进制转义，open() 失败 → 全中文文件被跳过
+     ② .reg 是 UTF-16LE，含 \x00 被判二进制 → 那两个文件从未被扫
 """
 
 import argparse
@@ -68,8 +73,12 @@ RULES = [
      "改用节名做交叉引用（行号必然失效）"),
 ]
 
+# 已知的二进制后缀：命中即计入「按后缀跳过」，不算漏扫。
+# 这里故意**不做**「遇到 \x00 就静默当二进制」的兜底 —— 那样会重演 .reg 被整类跳过的
+# 旧错。未知后缀的二进制会以「读不出文本」的形式出现在报告里，这是刻意的：
+# 让你确认过「它确实是二进制」之后，再把后缀加到这里。
 SKIP_SUFFIX = (".dll", ".exe", ".ico", ".png", ".jpg", ".jpeg", ".gif", ".zip",
-               ".7z", ".rar", ".pdf", ".woff", ".woff2", ".ttf", ".bin")
+               ".7z", ".rar", ".pdf", ".woff", ".woff2", ".ttf", ".bin", ".raw")
 
 NOREPLY_RE = re.compile(r"(?:\d+\+)?[\w.-]+@users\.noreply\.github\.com$", re.I)
 
@@ -84,17 +93,33 @@ def run(cmd, cwd):
 
 
 def tracked_files(repo):
-    code, out, _ = run(["git", "ls-files"], repo)
+    # ★ 必须用 -z（NUL 分隔），不能用默认的换行分隔输出。
+    #   默认输出会把非 ASCII 路径做 C 风格引号 + 八进制转义：
+    #       "docs/\351\234\200\346\261\202.md"
+    #   拿这个字符串去 open() 必然失败 → read_text 返回 None → 调用方 continue
+    #   → **所有中文名文件被静默跳过**，扫描等于空跑。
+    #   -z 是唯一彻底的做法：NUL 分隔 + 完全不做任何转义（比 -c core.quotepath=false
+    #   更硬，后者只是关掉转义但仍然按换行切分，路径里含换行时照样错）。
+    code, out, _ = run(["git", "ls-files", "-z"], repo)
     if code != 0:
         print("!! 不是 git 仓库或 git 不可用:", repo)
         sys.exit(2)
-    return [f for f in out.splitlines() if f.strip()]
+    return [f for f in out.split("\x00") if f.strip()]
 
 
 def read_text(path):
     try:
         b = io.open(path, "rb").read()
     except OSError:
+        return None
+    # ★ 先认 BOM。Windows 用 reg export 导出的 .reg 是 UTF-16LE，
+    #   旧版按「含 \x00 就是二进制」跳过 → 这类文件**从未被扫过**。
+    if b[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        for enc in ("utf-16", "utf-16-le", "utf-16-be"):
+            try:
+                return b.decode(enc)
+            except UnicodeDecodeError:
+                continue
         return None
     if b"\x00" in b[:2048]:
         return None
@@ -112,12 +137,24 @@ def mode_privacy(repo, allow):
     allow = list(DEFAULT_ALLOW) + list(allow)
     hits = []
     files = tracked_files(repo)
+    scanned = 0
+    binary = 0
+    unreadable = []
     for f in files:
         if f.lower().endswith(SKIP_SUFFIX):
+            binary += 1
             continue
-        text = read_text(os.path.join(repo, f))
-        if not text:
+        p = os.path.join(repo, f)
+        if not os.path.exists(p):
+            # 枚举出来却在磁盘上找不到 → 路径编码/枚举环节有问题。
+            # 「读不到所以没扫」和「扫过且干净」是两件事，必须分开记账。
+            unreadable.append((f, "路径不存在（拿不到文件）"))
             continue
+        text = read_text(p)
+        if text is None:
+            unreadable.append((f, "读不出文本（二进制或被占用）"))
+            continue
+        scanned += 1
         for lineno, line in enumerate(text.splitlines(), 1):
             if any(a and a in line for a in allow):
                 # 允许项可能只覆盖一行中的一部分，仍逐规则检查剩余内容
@@ -134,8 +171,10 @@ def mode_privacy(repo, allow):
                 m = rx.search(target)
                 if m:
                     hits.append((name, f, lineno, line.strip()[:120], fix))
-    _report("被跟踪文件的隐私扫描", hits, files=len(files))
-    return 0 if not hits else 1
+    _report("被跟踪文件的隐私扫描", hits,
+            files=len(files), scanned=scanned, binary=binary,
+            unreadable=unreadable)
+    return 0 if (not hits and not unreadable) else 1
 
 
 # ---------------------------------------------------------------- emails
@@ -294,12 +333,21 @@ def _vkey(v):
 
 # ---------------------------------------------------------------- 输出
 
-def _report(title, hits, files=None):
+def _report(title, hits, files=None, scanned=None, binary=None, unreadable=None):
     print("=== %s ===" % title)
     if files is not None:
         print("  扫描文件数: %d" % files)
+    if scanned is not None:
+        extra = ("（其中 %d 个二进制/按后缀跳过）" % binary) if binary else ""
+        print("  实际读取并逐行检查: %d 个%s" % (scanned, extra))
+    # 先报「没扫到」—— 否则下面的 ✅ 会让人以为全都扫过了
+    if unreadable:
+        print("  ★ 有 %d 个被跟踪文件**没扫到**，不算通过：" % len(unreadable))
+        for f, why in unreadable:
+            print("     - %s  （%s）" % (f, why))
     if not hits:
-        print("  未发现可疑内容 ✅")
+        if not unreadable:
+            print("  未发现可疑内容 ✅")
         return
     print("  发现 %d 处可疑：" % len(hits))
     for name, f, lineno, snippet, fix in hits:
