@@ -41,7 +41,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 if (-not $Root) { $Root = Split-Path -Parent $PSScriptRoot }
-$Root = (Resolve-Path -LiteralPath $Root).Path
+$Root = (Resolve-Path -LiteralPath $Root).ProviderPath
 $checker = Join-Path $Root 'tools\repo_hygiene.py'
 
 if (-not (Test-Path -LiteralPath $checker)) {
