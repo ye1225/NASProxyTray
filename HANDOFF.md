@@ -17,7 +17,9 @@ Windows 托盘工具，一键切换系统代理指向 NAS，支持全局代理�
 | 项目 | 值 |
 | --- | --- |
 | 仓库 | https://github.com/ye1225/NASProxyTray （**公开仓库**，已做脱敏，约定见「隐私与脱敏」一节） |
-| 本地路径 | **`D:\WorkBuddy\NASProxyTray`**（2026-09-24 起：所有项目统一平级放在 `D:\WorkBuddy\` 下）<br>历史位置：笔记本 `D:\Desktop\NASProxyTray`、台式机 `C:\Users\<用户名>\Desktop\NASProxyTray` |
+| 正本位置 | **`\\192.168.31.204\Download\WorkBuddy\项目\001-NASProxyTray`**（NAS，唯一正本） |
+| 历史位置 | **`D:\WorkBuddy\NASProxyTray`**（2026-09-24 起：所有项目统一平级放在 `D:\WorkBuddy\` 下）<br>笔记本 `D:\Desktop\NASProxyTray`、台式机 `C:\Users\<用户名>\Desktop\NASProxyTray` |
+| 本地缓存 | `D:\WorkBuddyCache\001-NASProxyTray\`（干活在这；用户开口才回传） |
 | 当前版本 | **v1.2.8**（唯一版本源：仓库根目录 `VERSION` 文件） |
 | 主分支 | `main` |
 | 运行环境 | Windows 10 1809+ / Windows 11 + WebView2 Runtime |
