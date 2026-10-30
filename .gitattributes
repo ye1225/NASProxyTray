@@ -30,3 +30,9 @@
 *.exe  binary
 *.zip  binary
 *.png  binary
+
+# ========== VBS 必须 CRLF（2026-10-30 全库补齐）==========
+# wscript / cscript 的标准格式是 CRLF。少了这条，`.vbs` 会走上面的总闸 eol=lf，
+# 于是出现「工作副本 CRLF、检出成 LF」—— 开机自启**静默**不执行，一句报错都没有。
+# 2026-10-30 在 025 上真实踩到（模板一直漏这条），所以从模板一次性补齐到全部项目。
+*.vbs  text eol=crlf
