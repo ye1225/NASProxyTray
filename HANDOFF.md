@@ -699,8 +699,8 @@ gh release create v1.3.6 dist/NASProxyTray.exe dist/NASProxyTray-v1.3.6.zip \
 > 两个办法：让用户退出托盘程序，或者 `mv dist\NASProxyTray.exe dist\NASProxyTray.exe.inuse`
 > 把文件改名腾位（**正在运行的进程不受影响**，改完即能构建；新 exe 生成后再删那个 `.inuse`）。
 
-已发布：v1.0.0 / v1.2.0 / v1.2.1 / v1.2.2 / v1.2.3 / v1.2.4 / v1.2.5 / v1.2.6 / v1.2.7 / v1.2.8 /
-**v1.3.6**（v1.3.0~v1.3.5 为连续迭代，只在 v1.3.6 发一次 Release）。
+已发布：v1.0.0 / v1.2.0 / v1.2.1 / v1.2.2 / v1.2.3 / v1.2.4 / v1.2.5 / v1.2.6 / v1.2.7 / v1.2.8 / v1.3.6
+（v1.3.0~v1.3.5 为连续迭代，只在 v1.3.6 发一次 Release）。
 
 踩过的坑：
 
