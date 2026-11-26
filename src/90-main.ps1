@@ -16,11 +16,31 @@ $form.add_Shown({
 
         $wantAuto = [bool]$cfg.autoStart
         $haveAuto = Get-AutoStart
-        if ($wantAuto -ne $haveAuto) { Set-AutoStart -Enabled $wantAuto | Out-Null }
+        if ($wantAuto -and (-not $haveAuto -or -not (Test-AutoStartSilent))) {
+            # 新建自启，或把 v1.2.8 及更早写的无参快捷方式升级为带 --silent 的版本
+            Set-AutoStart -Enabled $true | Out-Null
+        } elseif (-not $wantAuto -and $haveAuto) {
+            Set-AutoStart -Enabled $false | Out-Null
+        }
 
         if ($cfg.enabled) {
-            $r = Apply-ProxyConfig -Config $cfg
-            Write-Host "[ProxyTray] Auto-apply: $($r.msg)" -ForegroundColor Cyan
+            # 先探一次 NAS 再写系统代理：开机时 NAS 可能没醒（硬盘休眠 / 网络未就绪），
+            # 直接写代理会让全家断网。不通就不开，气泡提示一次，用户之后手动开。
+            $probe = $null
+            try { $probe = Test-ProxyConn -Server $cfg.server -Port ([int]$cfg.port) -TimeoutMs 2500 } catch { }
+            if ($probe -and $probe.ok) {
+                $r = Apply-ProxyConfig -Config $cfg
+                Write-Host "[ProxyTray] Auto-apply: $($r.msg)" -ForegroundColor Cyan
+            } else {
+                $cfg.enabled = $false
+                Save-ProxyConfig -Config $cfg
+                Write-Host "[ProxyTray] Auto-apply skipped: $($cfg.server):$($cfg.port) 不可达" -ForegroundColor Yellow
+                try {
+                    $tray.BalloonTipTitle = 'NAS Proxy'
+                    $tray.BalloonTipText  = "开机时代理未开启：$($cfg.server):$($cfg.port) 不可达。NAS 就绪后可在托盘菜单开启。"
+                    $tray.ShowBalloonTip(4000)
+                } catch { }
+            }
         }
 
         Update-TrayIcon -Enabled ([bool]$cfg.enabled)
@@ -82,7 +102,11 @@ Write-Host "[ProxyTray] bye."
 try { Stop-PacServer } catch { }
 try { if ($script:showTimer) { $script:showTimer.Dispose() } } catch { }
 try { if ($script:sizeTimer) { $script:sizeTimer.Dispose() } } catch { }
-try { $script:hideTimer.Dispose() } catch { }
+try { if ($script:hideTimer) { $script:hideTimer.Dispose() } } catch { }
+try { if ($script:rulesWatchTimer) { $script:rulesWatchTimer.Stop(); $script:rulesWatchTimer.Dispose() } } catch { }
+try { if ($script:directUpdatePollTimer) { $script:directUpdatePollTimer.Stop(); $script:directUpdatePollTimer.Dispose() } } catch { }
+try { if ($script:DirectUpdatePs) { $script:DirectUpdatePs.Stop(); $script:DirectUpdatePs.Dispose() } } catch { }
+try { if ($script:DirectUpdateRs) { $script:DirectUpdateRs.Close(); $script:DirectUpdateRs.Dispose() } } catch { }
 try { if ($script:updateStartTimer) { $script:updateStartTimer.Stop(); $script:updateStartTimer.Dispose() } } catch { }
 try { if ($script:updatePollTimer)  { $script:updatePollTimer.Stop();  $script:updatePollTimer.Dispose()  } } catch { }
 try { if ($script:UpdatePs)         { $script:UpdatePs.Stop(); $script:UpdatePs.Dispose() } } catch { }

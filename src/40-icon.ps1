@@ -1,32 +1,33 @@
 ﻿# ── src/40-icon.ps1 · 托盘图标绘制 ──
 # 按颜色生成圆形图标位图（灰=已关闭 / 绿=规则分流已开启 / 蓝=全局代理已开启）
+# 画布固定 96px 高分辨率：托盘缩到 16~32px 显示时边缘仍然锐利（v1.3.0 按
+# SmallIconSize 直接画，200% DPI 下被放大后发虚）。
+# 留白从 8% 收到 2%：满幅圆在托盘里和 360 等方形 Logo 视觉大小一致（v1.3.1）。
 
 function New-BallIcon {
     param([System.Drawing.Color]$Color)
-    $size = [System.Windows.Forms.SystemInformation]::SmallIconSize.Width
-    if ($size -lt 16) { $size = 16 }
+    $px = 96
 
-    $bmp = New-Object System.Drawing.Bitmap($size, $size, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $bmp = New-Object System.Drawing.Bitmap($px, $px, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $g   = [System.Drawing.Graphics]::FromImage($bmp)
     $g.SmoothingMode     = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
     $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
     $g.Clear([System.Drawing.Color]::Transparent)
 
-    $pad = [Math]::Max(1, [int]($size * 0.08))
-    $d   = $size - 2 * $pad
+    $pad = [int]($px * 0.02)
+    $d   = $px - 2 * $pad
 
-    $edge = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(70, 0, 0, 0))
-    $g.FillEllipse($edge, $pad, $pad, $d, $d)
-
+    # 主色球（满幅，不再画深色描边圈 —— 描边在 16px 下会把球"吃"掉一圈，显小）
     $main = New-Object System.Drawing.SolidBrush ($Color)
-    $g.FillEllipse($main, $pad + 1, $pad + 1, $d - 2, $d - 2)
+    $g.FillEllipse($main, $pad, $pad, $d, $d)
 
-    $hw = [int](($d - 2) * 0.50); $hh = [int](($d - 2) * 0.42)
-    $hx = $pad + 1 + [int](($d - 2) * 0.14); $hy = $pad + 1 + [int](($d - 2) * 0.10)
-    $hl = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(130, 255, 255, 255))
+    # 左上高光，保留一点球面质感
+    $hw = [int]($d * 0.46); $hh = [int]($d * 0.38)
+    $hx = $pad + [int]($d * 0.13); $hy = $pad + [int]($d * 0.09)
+    $hl = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(110, 255, 255, 255))
     $g.FillEllipse($hl, $hx, $hy, $hw, $hh)
 
-    $g.Dispose(); $edge.Dispose(); $main.Dispose(); $hl.Dispose()
+    $g.Dispose(); $main.Dispose(); $hl.Dispose()
 
     $hIcon = $bmp.GetHicon()
     $icon  = [System.Drawing.Icon]([System.Drawing.Icon]::FromHandle($hIcon).Clone())

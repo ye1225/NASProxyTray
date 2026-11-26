@@ -190,26 +190,28 @@ using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
 public class DarkColorTable : ProfessionalColorTable {
-    public override Color MenuBorder                    { get { return Color.FromArgb(58, 58, 64); } }
+    public override Color MenuBorder                    { get { return Color.FromArgb(60, 60, 66); } }
     public override Color MenuItemBorder                { get { return Color.Transparent; } }
     public override Color MenuItemSelected              { get { return Color.Transparent; } }
     public override Color MenuItemSelectedGradientBegin { get { return Color.Transparent; } }
     public override Color MenuItemSelectedGradientEnd   { get { return Color.Transparent; } }
-    public override Color ToolStripDropDownBackground   { get { return Color.FromArgb(38, 38, 42); } }
-    public override Color ImageMarginGradientBegin      { get { return Color.FromArgb(38, 38, 42); } }
-    public override Color ImageMarginGradientMiddle     { get { return Color.FromArgb(38, 38, 42); } }
-    public override Color ImageMarginGradientEnd        { get { return Color.FromArgb(38, 38, 42); } }
-    public override Color SeparatorDark                 { get { return Color.FromArgb(58, 58, 64); } }
-    public override Color SeparatorLight                { get { return Color.FromArgb(58, 58, 64); } }
+    public override Color ToolStripDropDownBackground   { get { return Color.FromArgb(40, 40, 43); } }
+    public override Color ImageMarginGradientBegin      { get { return Color.FromArgb(40, 40, 43); } }
+    public override Color ImageMarginGradientMiddle     { get { return Color.FromArgb(40, 40, 43); } }
+    public override Color ImageMarginGradientEnd        { get { return Color.FromArgb(40, 40, 43); } }
+    public override Color SeparatorDark                 { get { return Color.FromArgb(52, 52, 56); } }
+    public override Color SeparatorLight                { get { return Color.FromArgb(52, 52, 56); } }
 }
 
+// 观感目标：细圆角 + 浅灰 hover + 左侧勾选槽，别像系统默认菜单那样「一块蓝色方块 + 直角边框」
 public class DarkMenuRenderer : ToolStripProfessionalRenderer {
-    public Color Bg      = Color.FromArgb(38, 38, 42);
-    public Color Fg      = Color.FromArgb(240, 240, 245);
-    public Color HoverBg = Color.FromArgb(10, 132, 255);
-    public Color HoverFg = Color.White;
-    public Color LineCol = Color.FromArgb(58, 58, 64);
-    public Color EdgeCol = Color.FromArgb(62, 62, 68);
+    public Color Bg      = Color.FromArgb(40, 40, 43);
+    public Color Fg      = Color.FromArgb(236, 236, 239);
+    public Color FgDim   = Color.FromArgb(124, 124, 130);
+    public Color HoverBg = Color.FromArgb(22, 255, 255, 255);
+    public Color Accent  = Color.FromArgb(10, 132, 255);
+    public Color LineCol = Color.FromArgb(48, 255, 255, 255);
+    public Color EdgeCol = Color.FromArgb(58, 58, 64);
 
     public DarkMenuRenderer() : base(new DarkColorTable()) {
         this.RoundedEdges = false;
@@ -223,10 +225,12 @@ public class DarkMenuRenderer : ToolStripProfessionalRenderer {
     }
 
     protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e) {
+        Graphics g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        Rectangle r = new Rectangle(0, 0, e.ToolStrip.Width - 1, e.ToolStrip.Height - 1);
+        using (GraphicsPath path = RoundRect(r, 10))
         using (Pen p = new Pen(EdgeCol, 1)) {
-            int w = e.ToolStrip.Width;
-            int h = e.ToolStrip.Height;
-            e.Graphics.DrawRectangle(p, 0, 0, w - 1, h - 1);
+            g.DrawPath(p, path);
         }
     }
 
@@ -234,8 +238,8 @@ public class DarkMenuRenderer : ToolStripProfessionalRenderer {
         Graphics g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
         if (e.Item.Selected && e.Item.Enabled && (e.Item is ToolStripMenuItem)) {
-            Rectangle r = new Rectangle(3, 1, e.Item.Width - 6, e.Item.Height - 2);
-            using (GraphicsPath path = RoundRect(r, 6))
+            Rectangle r = new Rectangle(4, 2, e.Item.Width - 8, e.Item.Height - 4);
+            using (GraphicsPath path = RoundRect(r, 7))
             using (SolidBrush b = new SolidBrush(HoverBg)) {
                 g.FillPath(b, path);
             }
@@ -244,19 +248,37 @@ public class DarkMenuRenderer : ToolStripProfessionalRenderer {
 
     protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e) {
         if (!e.Item.Enabled) {
-            e.TextColor = Color.FromArgb(110, 110, 118);
-        } else if (e.Item.Selected) {
-            e.TextColor = HoverFg;
+            e.TextColor = FgDim;
         } else {
             e.TextColor = Fg;
         }
         base.OnRenderItemText(e);
     }
 
+    // 自己画勾：默认那枚勾又小又灰，选中项看不出来
+    protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e) {
+        Graphics g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        Rectangle b = e.ImageRectangle;
+        int w = b.Width, h = b.Height;
+        int cx = b.X + w / 2, cy = b.Y + h / 2;
+        int s = Math.Max(5, (int)(w * 0.30));
+        using (Pen p = new Pen(Accent, 2f)) {
+            p.StartCap  = LineCap.Round;
+            p.EndCap    = LineCap.Round;
+            p.LineJoin  = LineJoin.Round;
+            g.DrawLines(p, new Point[] {
+                new Point(cx - s, cy),
+                new Point(cx - s / 3, cy + s * 2 / 3),
+                new Point(cx + s, cy - s * 2 / 3)
+            });
+        }
+    }
+
     protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e) {
         using (Pen p = new Pen(LineCol, 1)) {
             int y = e.Item.Height / 2;
-            e.Graphics.DrawLine(p, 10, y, e.Item.Width - 10, y);
+            e.Graphics.DrawLine(p, 14, y, e.Item.Width - 14, y);
         }
     }
 

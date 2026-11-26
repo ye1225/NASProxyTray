@@ -12,11 +12,8 @@ $injectJs = @'
         var killer = document.createElement('style');
         killer.textContent = [
             '*,*::before,*::after{transition:none !important;animation:none !important;}',
-            '.collapse-panel-inner{transition:opacity 0.18s ease-out, transform 0.18s ease-out !important;}',
             'html,body{scrollbar-width:none !important;-ms-overflow-style:none !important;}',
-            '::-webkit-scrollbar{display:none !important;width:0 !important;height:0 !important;}',
-            '.pac-panel.active{min-height:116px !important;}',
-            '.toast,.toast-container,.notification,.alert,.message,[class*="toast"],[class*="notification"],[class*="alert"],[class*="message"],[role="alert"]{display:none !important;}'
+            '::-webkit-scrollbar{display:none !important;width:0 !important;height:0 !important;}'
         ].join('\n');
         (document.head || document.documentElement).appendChild(killer);
     } catch (e) {}
@@ -54,7 +51,7 @@ $injectJs = @'
 
     try {
         var lastReportedW = -1, lastReportedH = -1;
-        var FREEZE_MS = 500;
+        var FREEZE_MS = 250;
         var frozenUntil = 0;
         var freezeTimer = null;
 
@@ -68,6 +65,8 @@ $injectJs = @'
             window.chrome.webview.postMessage(JSON.stringify({ action: 'size', w: w, h: h }));
         }
         function onResize() { publish(); }
+        // 后端在「静默启动后第一次点开托盘」时调它，补一次尺寸上报
+        window.__ptPublish = publish;
 
         document.addEventListener('click', function (e) {
             var hit = false;
@@ -166,7 +165,12 @@ $webView.add_CoreWebView2InitializationCompleted([System.EventHandler[Microsoft.
 
                 'size' {
                     # 前端上报的是 CSS 像素，SetBounds 要的是物理像素，相差一个 DpiScale
-                    if ($w -lt 200 -or $h -lt 200) { return }
+                    # v1.2.8 bug：这里原来写的是 $w/$h（从未赋值），$null -lt 200 恒真 →
+                    # 直接 return，窗口尺寸上报机制整个失效（「展开内容顶进固定小窗」的根因）
+                    $w = 0; $h = 0
+                    try { $w = [int]$obj.w } catch { }
+                    try { $h = [int]$obj.h } catch { }
+                    if ($w -lt 200 -or $h -lt 150) { return }
                     $script:pendingW = [int][Math]::Round($w * $script:DpiScale)
                     $script:pendingH = [int][Math]::Round($h * $script:DpiScale)
                     $script:sizeTimer.Stop()
@@ -187,7 +191,10 @@ $webView.add_CoreWebView2InitializationCompleted([System.EventHandler[Microsoft.
                     $cfg = Get-ProxyConfig
                     $script:CurrentConfig = $cfg
                     Update-TrayIcon -Enabled ([bool]$cfg.enabled)
-                    $payload = @{ action = 'config'; config = $cfg; version = $script:AppVersion; chinaCount = @($script:ChinaDirectDomains).Count } | ConvertTo-Json -Depth 6 -Compress
+                    # firstRun：没有配置文件 = 首次使用，界面直接进地址编辑态，
+                    # 避免显示一个示例默认地址让人误以为配置丢了
+                    $firstRun = -not (Test-Path -LiteralPath $script:ConfigFile)
+                    $payload = @{ action = 'config'; config = $cfg; version = $script:AppVersion; chinaCount = @($script:ChinaDirectDomains).Count; firstRun = $firstRun } | ConvertTo-Json -Depth 6 -Compress
                     $s2.PostWebMessageAsString($payload)
                 }
 

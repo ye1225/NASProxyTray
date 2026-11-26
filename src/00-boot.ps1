@@ -177,7 +177,7 @@ if ($script:appIsExe -and ($script:DataDir -ine $root)) {
 # 版本号：VERSION 文件是唯一来源。
 # 单文件 exe 里没有 VERSION 文件，build.ps1 会把下面这行常量改写成 VERSION 的内容。
 # ---------------------------------------------------------------
-$script:AppVersionBuiltin = '1.2.6'
+$script:AppVersionBuiltin = '1.3.6'
 $script:AppVersion = $script:AppVersionBuiltin
 try {
     $verFile = Join-Path $root 'VERSION'
@@ -342,10 +342,14 @@ if ($script:MigratedFrom) {
 # ---------------------------------------------------------------
 $script:DryRun = ($env:PROXYTRAY_DRYRUN -eq '1')
 
+# --silent：开机自启专用，面板不弹出，只留托盘图标（90-main 的 Show-ReadyForm 处理）
+$script:SilentStart = $false
+try { $script:SilentStart = ([Environment]::GetCommandLineArgs() -contains '--silent') } catch { }
+
 Write-Host ("[ProxyTray] mode={0} self={1}" -f $(if ($script:appIsExe) { 'EXE' } else { 'PS1' }), $script:appSelf)
 Write-Host ("[ProxyTray] root={0}  data={1}" -f $root, $script:DataDir)
 Write-Host ("[ProxyTray] apartment={0}" -f [System.Threading.Thread]::CurrentThread.GetApartmentState())
-Write-Host ("[ProxyTray] version={0}  packed={1}  console={2}" -f $script:AppVersion, $script:UsingPacked, $script:HasConsole)
+Write-Host ("[ProxyTray] version={0}  packed={1}  console={2}  silent={3}" -f $script:AppVersion, $script:UsingPacked, $script:HasConsole, $script:SilentStart)
 Write-Host ("[ProxyTray] content={0}" -f $script:RuntimeDir)
 Write-Host ("[ProxyTray] dpiAware={0}" -f $script:DpiAwareMode)
 

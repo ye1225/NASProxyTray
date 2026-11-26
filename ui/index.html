@@ -7,41 +7,44 @@
 :root {
     --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --text-secondary: #86868b;
     --border: #e5e5ea; --accent: #007aff; --accent-hover: #0066d6;
-    --green: #34c759; --red: #ff3b30; --accent-soft: rgba(0,122,255,0.08);
-    --amber: #c98a00;
+    --green: #34c759; --red: #ff3b30; --amber: #c98a00;
+    --seg-track: rgba(142,142,147,0.14);
     --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04);
-    --shadow-hover: 0 2px 8px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06);
+    --shadow-seg: 0 1px 4px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.06);
 }
 @media (prefers-color-scheme: dark) {
     :root {
         --bg: #1c1c1e; --card: #2c2c2e; --text: #f5f5f7; --text-secondary: #98989d;
         --border: #38383a; --accent: #0a84ff; --accent-hover: #409cff;
-        --green: #30d158; --red: #ff453a; --accent-soft: rgba(10,132,255,0.15);
-        --amber: #e0a52c;
+        --green: #30d158; --red: #ff453a; --amber: #e0a52c;
+        --seg-track: rgba(142,142,147,0.16);
         --shadow: 0 1px 3px rgba(0,0,0,0.3), 0 4px 12px rgba(0,0,0,0.2);
-        --shadow-hover: 0 2px 8px rgba(0,0,0,0.4), 0 8px 24px rgba(0,0,0,0.3);
+        --shadow-seg: 0 1px 4px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.3);
     }
 }
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-font-smoothing: antialiased; }
 html, body { background: var(--bg); }
 body {
     font-family: -apple-system, 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
-    color: var(--text); width: 420px;
-    padding: 16px 18px; display: flex; flex-direction: column; gap: 11px;
-    transition: background 0.3s ease, color 0.3s ease;
+    color: var(--text); width: 360px;
+    padding: 12px 14px 12px;
+    display: flex; flex-direction: column; gap: 10px;
     user-select: none; overflow: hidden;
 }
-.title-bar { display: flex; align-items: center; justify-content: space-between; padding: 0 2px; }
-.title { font-size: 14px; font-weight: 600; letter-spacing: 0.3px; }
-.title-sub { font-size: 11px; color: var(--text-secondary); margin-top: 1px; }
 
+/* ---------- 顶栏（拖拽区） ---------- */
+.title-bar { display: flex; align-items: baseline; justify-content: space-between; padding: 2px 2px 0; }
+.title { font-size: 14px; font-weight: 600; letter-spacing: 0.3px; }
+.title-sub { font-size: 10.5px; color: var(--text-secondary); letter-spacing: 0.3px; }
+
+/* ---------- 电源卡片 ---------- */
 .switch-card {
-    background: var(--card); border-radius: 14px; padding: 16px 20px;
+    background: var(--card); border-radius: 16px; padding: 14px 18px;
     box-shadow: var(--shadow); display: flex; flex-direction: row;
     align-items: center; gap: 16px;
 }
 .switch-btn {
-    width: 68px; height: 68px; border-radius: 50%; border: none; cursor: pointer;
+    width: 64px; height: 64px; border-radius: 50%; border: none; cursor: pointer;
     background: linear-gradient(135deg, #b0b0b0, #8a8a8a);
     display: flex; align-items: center; justify-content: center;
     transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
@@ -60,410 +63,105 @@ body {
     box-shadow: 0 4px 18px rgba(52, 199, 89, 0.4), inset 0 1px 0 rgba(255,255,255,0.3);
 }
 .switch-btn svg {
-    width: 30px; height: 30px; stroke: white; stroke-width: 2.5;
+    width: 28px; height: 28px; stroke: white; stroke-width: 2.5;
     fill: none; stroke-linecap: round; stroke-linejoin: round;
-    position: relative; z-index: 1; transition: all 0.3s ease;
+    position: relative; z-index: 1;
 }
 .switch-status { text-align: left; flex: 1; min-width: 0; }
-.switch-status-title { font-size: 15px; font-weight: 600; margin-bottom: 3px; transition: color 0.3s ease; }
+.switch-status-title { font-size: 15px; font-weight: 600; margin-bottom: 3px; }
 .switch-status-title.on { color: var(--green); }
 .switch-status-desc {
     font-size: 11.5px; color: var(--text-secondary);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-
 .status-badge {
     display: flex; align-items: center; gap: 6px;
     padding: 6px 11px; border-radius: 20px;
     font-size: 11px; font-weight: 500; letter-spacing: 0.2px;
     background: rgba(142,142,147,0.13); color: var(--text-secondary);
-    flex-shrink: 0; transition: all 0.3s ease;
+    flex-shrink: 0;
 }
 .status-badge.on { background: rgba(52,199,89,0.15); color: var(--green); }
-.badge-dot {
-    width: 6px; height: 6px; border-radius: 50%;
-    background: currentColor;
-    box-shadow: 0 0 0 3px rgba(142,142,147,0.15);
-    transition: all 0.3s ease;
-}
-.status-badge.on .badge-dot {
-    box-shadow: 0 0 0 3px rgba(52,199,89,0.2);
-    animation: pulse 2s ease-in-out infinite;
-}
-@keyframes pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50%      { opacity: 0.5; transform: scale(0.85); }
-}
+.badge-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.status-badge.on .badge-dot { box-shadow: 0 0 0 3px rgba(52,199,89,0.2); }
 
-.config-card {
-    background: var(--card); border-radius: 14px; padding: 16px 18px;
-    box-shadow: var(--shadow); display: flex; flex-direction: column;
-    gap: 12px; transition: background 0.3s ease, padding 0.3s ease;
+/* ---------- 模式分段 ---------- */
+.mode-seg {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+    background: var(--seg-track); border-radius: 12px; padding: 4px;
 }
-.field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.field-label {
-    font-size: 11.5px; font-weight: 500; color: var(--text-secondary);
-    letter-spacing: 0.2px;
+.seg {
+    border: none; background: transparent; border-radius: 9px;
+    padding: 7px 8px 8px; text-align: center; cursor: pointer;
+    font-family: inherit; min-width: 0;
 }
+.seg:hover { background: rgba(142,142,147,0.10); }
+.seg-t { display: block; font-size: 12.5px; font-weight: 600; color: var(--text-secondary); }
+.seg-d { display: block; font-size: 10px; color: var(--text-secondary); opacity: 0.75; margin-top: 2px; }
+.seg.active { background: var(--card); box-shadow: var(--shadow-seg); }
+.seg.active .seg-t { color: var(--accent); }
 
-.mode-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-}
-
-.proxy-input {
-    position: relative;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    align-items: center;
-    background: var(--bg);
-    border: 1.5px solid transparent;
-    border-radius: 9px;
-    padding: 0 12px;
-    transition: all 0.2s ease;
-    height: 38px;
-}
-.proxy-input:focus-within {
-    border-color: var(--accent);
-    background: var(--card);
-    box-shadow: 0 0 0 4px var(--accent-soft);
-}
-.proxy-input input {
-    background: transparent;
-    border: none;
-    outline: none;
-    padding: 0;
-    font-family: inherit;
-    font-size: 13px;
-    color: var(--text);
-    line-height: 38px;
-    height: 38px;
-    width: 100%;
-}
-.proxy-left {
-    grid-column: 1;
-    display: flex;
-    align-items: center;
-    min-width: 0;
-}
-.proxy-ip {
-    flex: 1;
-    min-width: 0;
-    padding-right: 16px !important;
-}
-.proxy-right {
-    grid-column: 2;
-    display: flex;
-    align-items: center;
-    min-width: 0;
-    padding-left: 26px;
-}
-.proxy-port {
-    width: 72px;
-    flex-shrink: 0;
-}
-.proxy-sep {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    color: var(--text-secondary);
-    font-size: 13px;
-    opacity: 0.55;
-    user-select: none;
-    pointer-events: none;
-    line-height: 1;
-    z-index: 1;
-}
-
-.conn-inline {
-    position: absolute;
-    right: 12px;
-    top: 50%;
-    transform: translateY(-50%);
-    display: flex; align-items: center; gap: 4px;
-    font-size: 10.5px; font-weight: 500;
-    letter-spacing: 0.1px;
-    color: var(--text-secondary);
-    pointer-events: none;
-    transition: color 0.3s ease;
-    white-space: nowrap;
-    z-index: 1;
-}
-.conn-inline .conn-dot {
-    width: 5px; height: 5px; border-radius: 50%;
-    background: currentColor;
-    flex-shrink: 0;
-    transition: all 0.3s ease;
-    box-shadow: 0 0 0 2px rgba(142,142,147,0.12);
-}
-.conn-inline.testing .conn-dot { animation: pulse 1s ease-in-out infinite; }
-.conn-inline.ok { color: var(--green); }
-.conn-inline.ok .conn-dot { box-shadow: 0 0 0 2px rgba(52,199,89,0.18); }
-.conn-inline.fail { color: var(--red); }
-.conn-inline.fail .conn-dot { box-shadow: 0 0 0 2px rgba(255,59,48,0.18); }
-
-input[type="text"], textarea {
-    font-family: inherit; font-size: 13px; color: var(--text);
-    background: var(--bg); border: 1.5px solid transparent; border-radius: 9px;
-    padding: 9px 11px; outline: none; transition: all 0.2s ease;
-    width: 100%; resize: none;
-}
-input[type="text"]:focus, textarea:focus {
-    border-color: var(--accent); background: var(--card);
-    box-shadow: 0 0 0 4px var(--accent-soft);
-}
-.proxy-input input[type="text"] {
-    background: transparent;
-    border: none;
-    border-radius: 0;
-    box-shadow: none;
-    padding: 0;
-}
-.proxy-input input[type="text"]:focus {
-    background: transparent;
-    border: none;
-    box-shadow: none;
-}
-
-textarea {
-    font-size: 11.5px; line-height: 1.55;
-    font-family: 'Consolas', 'Monaco', monospace;
-}
-
-.mode-card {
-    padding: 10px 12px;
-    background: var(--bg); border: 2px solid transparent;
-    border-radius: 10px; font-family: inherit; text-align: left;
-    cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    min-width: 0;
-}
-.mode-card:hover { border-color: rgba(142,142,147,0.25); }
-.mode-card.active { background: var(--accent-soft); border-color: var(--accent); }
-.mode-card-title {
-    font-size: 12.5px; font-weight: 600; color: var(--text);
-    margin-bottom: 3px; display: flex; align-items: center; gap: 5px;
-    transition: color 0.2s ease;
-}
-.mode-card.active .mode-card-title { color: var(--accent); }
-.mode-card-desc { font-size: 10.5px; color: var(--text-secondary); line-height: 1.4; }
-.mode-card .check {
-    width: 13px; height: 13px; stroke: var(--accent); stroke-width: 3;
-    fill: none; stroke-linecap: round; stroke-linejoin: round;
-    opacity: 0; transform: scale(0.6);
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    margin-left: auto;
-}
-.mode-card.active .check { opacity: 1; transform: scale(1); }
-
-.collapse-toggle {
-    display: flex; align-items: center; gap: 7px;
-    background: transparent; border: none; padding: 6px 2px;
-    color: var(--text-secondary); font-size: 11.5px; font-weight: 500;
-    cursor: pointer; text-align: left; width: 100%;
-    font-family: inherit; transition: color 0.2s ease;
-    letter-spacing: 0.2px;
-}
-.collapse-toggle:hover { color: var(--text); }
-.collapse-toggle .chev {
-    width: 11px; height: 11px; stroke: currentColor; stroke-width: 2.8;
-    fill: none; stroke-linecap: round; stroke-linejoin: round;
-    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    flex-shrink: 0;
-}
-.collapse-toggle.expanded .chev { transform: rotate(90deg); }
-.collapse-toggle .hint {
-    margin-left: auto; font-size: 10.5px; opacity: 0.65;
-    font-weight: 400; transition: opacity 0.2s ease;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    display: flex; align-items: center; gap: 5px;
-}
-.collapse-toggle.expanded .hint { opacity: 0; }
-.collapse-toggle .custom-dot {
-    width: 5px; height: 5px; border-radius: 50%;
-    background: var(--accent); flex-shrink: 0;
-    display: none;
-}
-.collapse-toggle.has-custom .hint { opacity: 1; color: var(--accent); }
-.collapse-toggle.has-custom.expanded .hint { opacity: 0; }
-.collapse-toggle.has-custom .custom-dot { display: block; }
-
-/* ---- !!! 关键修改：不再对高度做动画 → 只触发一次窗口 resize → 不闪 ---- */
-.collapse-panel {
-    max-height: 0; overflow: hidden;
-    transition: none;
-}
-.collapse-panel.expanded { max-height: 700px; }
-.collapse-panel-inner {
-    padding-top: 4px; display: flex; flex-direction: column; gap: 12px;
-    /* 用「淡入 + 微上滑」代替高度动画：不动布局高度，不触发 resize */
-    opacity: 0;
-    transform: translateY(-6px);
-    transition: opacity 0.18s ease-out, transform 0.18s ease-out;
-}
-.collapse-panel.expanded .collapse-panel-inner {
-    opacity: 1;
-    transform: translateY(0);
-}
-
-.pac-block { display: none; flex-direction: column; gap: 8px; }
-.pac-block.visible { display: flex; }
-.pac-divider {
-    display: none; height: 1px; background: var(--border);
-    margin: 2px 0;
-}
-.pac-divider.visible { display: block; }
-
-.sub-label {
-    font-size: 11.5px; font-weight: 500; color: var(--text-secondary);
-    letter-spacing: 0.2px; margin-bottom: 5px; display: block;
-}
-.sub-label .count { color: var(--accent); font-weight: 600; margin-left: 3px; }
-
-.pac-tabs {
-    display: flex; gap: 4px;
-    background: var(--bg); border-radius: 9px; padding: 3px;
-}
-.pac-tab {
-    flex: 1; padding: 6px 8px;
-    background: transparent; border: none; border-radius: 7px;
-    font-family: inherit; font-size: 11.5px; font-weight: 500;
-    color: var(--text-secondary); cursor: pointer;
-    transition: all 0.2s ease;
-}
-.pac-tab:hover { color: var(--text); }
-.pac-tab.active {
-    background: var(--card); color: var(--accent);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-}
-.pac-panel { display: none; flex-direction: column; gap: 6px; }
-.pac-panel.active { display: flex; }
-
-.pac-tabs.sub { background: transparent; padding: 0; gap: 6px; }
-.pac-tabs.sub .pac-tab {
-    flex: 0 0 auto; padding: 4px 11px;
-    background: var(--bg); border: 1px solid var(--border);
-    border-radius: 7px; font-size: 11px;
-}
-.pac-tabs.sub .pac-tab.active {
-    background: var(--card); border-color: var(--accent);
-    color: var(--accent); box-shadow: none;
-}
-.policy-block { display: none; flex-direction: column; gap: 6px; }
-.policy-block.active { display: flex; }
-.pac-hint code {
-    font-family: var(--mono, monospace); font-size: 10px;
-    background: var(--bg); padding: 1px 4px; border-radius: 4px;
-}
-
-.file-picker { display: flex; gap: 6px; }
-.file-picker input[type="text"] { flex: 1; }
-.browse-btn {
-    padding: 0 14px; flex-shrink: 0;
-    background: var(--bg); border: 1.5px solid var(--border);
-    border-radius: 9px; font-family: inherit; font-size: 12px;
-    font-weight: 500; color: var(--text); cursor: pointer;
-    transition: all 0.2s ease;
-}
-.browse-btn:hover { background: var(--card); border-color: var(--text-secondary); }
-
-.pac-hint {
-    font-size: 10.5px; color: var(--text-secondary);
-    line-height: 1.5; padding: 0 2px;
-}
-.pac-hint a { color: var(--accent); text-decoration: none; }
-.pac-hint a:hover { text-decoration: underline; }
-
-.pac-rewrite-row {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 12px; padding-top: 10px; border-top: 1px solid var(--border);
-}
-.pac-rewrite-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.pac-rewrite-row .pac-hint { padding: 0; }
-.pac-rewrite-row .pac-hint .to { color: var(--accent); font-weight: 500; }
-
-.auto-start-row {
-    display: flex; align-items: center; justify-content: space-between;
-    padding-top: 10px; border-top: 1px solid var(--border);
-}
-.auto-start-label {
-    font-size: 12px; font-weight: 500; color: var(--text-secondary);
-    letter-spacing: 0.2px;
-}
-.toggle {
-    position: relative; width: 40px; height: 23px;
-    border-radius: 12px; background: rgba(142,142,147,0.3);
-    cursor: pointer; transition: background 0.25s ease;
-    flex-shrink: 0; border: none; padding: 0;
-}
-.toggle::after {
-    content: ''; position: absolute; top: 2px; left: 2px;
-    width: 19px; height: 19px; border-radius: 50%;
-    background: white;
-    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-}
-.toggle.on { background: var(--green); }
-.toggle.on::after { transform: translateX(17px); }
-
-/* ---------- 自动保存状态条（取代原「保存设置」按钮） ---------- */
-.autosave-bar {
+/* ---------- 地址行 ---------- */
+.addr-row {
     display: flex; align-items: center; justify-content: center; gap: 7px;
-    margin-top: 4px; padding: 8px 10px; border-radius: 10px;
-    font-size: 11.5px; letter-spacing: 0.2px;
-    color: var(--text-secondary); background: transparent;
-    transition: color 0.25s ease, background 0.25s ease;
-    min-height: 33px;
+    padding: 4px 6px 4px 10px; border-radius: 9px; min-height: 30px;
+    font-size: 11px; color: var(--text-secondary); letter-spacing: 0.15px;
+    cursor: pointer; transition: background 0.15s ease;
 }
-.autosave-bar .dot {
-    width: 6px; height: 6px; border-radius: 50%;
-    background: currentColor; opacity: 0.45;
-    flex-shrink: 0; transition: all 0.25s ease;
+.addr-row:hover { background: rgba(142,142,147,0.10); }
+.addr-dot {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--text-secondary); opacity: 0.45; flex-shrink: 0;
 }
-.autosave-bar.pending { color: var(--amber); background: rgba(201,138,0,0.10); }
-.autosave-bar.pending .dot { opacity: 1; animation: dotBlink 1.1s ease-in-out infinite; }
-.autosave-bar.ok { color: var(--green); background: rgba(52,199,89,0.10); }
-.autosave-bar.ok .dot { opacity: 1; }
-.autosave-bar.err { color: var(--red); background: rgba(255,59,48,0.10); }
-.autosave-bar.err .dot { opacity: 1; }
-@keyframes dotBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+.addr-dot.ok { background: var(--green); opacity: 1; box-shadow: 0 0 0 2px rgba(52,199,89,0.15); }
+.addr-dot.fail { background: var(--red); opacity: 1; box-shadow: 0 0 0 2px rgba(255,59,48,0.15); }
+.addr-text { font-family: 'Consolas', 'Monaco', monospace; font-size: 10.5px; }
+.addr-sep { opacity: 0.35; }
+.addr-latency { font-family: 'Consolas', 'Monaco', monospace; font-size: 10.5px; }
+.addr-edit {
+    border: 1px solid rgba(10,132,255,0.28); background: rgba(10,132,255,0.10);
+    border-radius: 7px; font-family: inherit; font-size: 10.5px; font-weight: 500;
+    color: var(--accent); cursor: pointer; padding: 3px 9px; margin-left: 2px;
+    letter-spacing: 0.2px;
+}
+.addr-edit:hover { background: rgba(10,132,255,0.18); border-color: rgba(10,132,255,0.45); }
+.addr-edit-row { width: 100%; }
+.addr-full { display: flex; gap: 6px; width: 100%; align-items: center; }
+.addr-input {
+    font-family: 'Consolas', 'Monaco', monospace; font-size: 11px; color: var(--text);
+    background: var(--card); border: 1.5px solid var(--accent); border-radius: 8px;
+    padding: 6px 9px; outline: none; min-width: 0;
+}
+.addr-input.ip { flex: 1; }
+.addr-input.port { width: 68px; }
+.addr-done {
+    border: none; background: var(--accent); color: #fff; border-radius: 8px;
+    padding: 7px 13px; font-family: inherit; font-size: 11px; font-weight: 500;
+    cursor: pointer; flex-shrink: 0;
+}
+.addr-done:hover { background: var(--accent-hover); }
+.hidden { display: none !important; }
 
-.footer {
-    display: flex; align-items: center; justify-content: space-between;
-    font-size: 10.5px; color: var(--text-secondary);
-    padding: 0 2px;
-}
-.footer a, .footer button {
-    color: var(--text-secondary); text-decoration: none;
-    transition: color 0.2s ease; background: none; border: none;
-    font-family: inherit; font-size: inherit; cursor: pointer; padding: 0;
-}
-.footer a:hover, .footer button:hover { color: var(--accent); }
-.footer .center { flex: 1; text-align: center; }
-
+/* ---------- toast ---------- */
 .toast {
-    position: fixed; bottom: 20px; left: 50%;
-    transform: translateX(-50%) translateY(80px);
+    position: fixed; bottom: 16px; left: 50%;
+    transform: translateX(-50%);
     background: var(--card); color: var(--text);
-    padding: 11px 18px; border-radius: 11px;
-    font-size: 12.5px; font-weight: 500;
-    box-shadow: var(--shadow-hover); opacity: 0;
-    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-    pointer-events: none; border: 1px solid var(--border); z-index: 100;
-    max-width: 380px;
+    padding: 9px 16px; border-radius: 10px;
+    font-size: 12px; font-weight: 500;
+    box-shadow: var(--shadow); opacity: 0; visibility: hidden;
+    border: 1px solid var(--border); z-index: 100;
+    max-width: 360px; text-align: center; line-height: 1.4;
 }
-.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-.toast.success { border-color: var(--green); color: var(--green); }
+.toast.show { opacity: 1; visibility: visible; }
 .toast.error { border-color: var(--red); color: var(--red); }
+.toast.success { border-color: var(--green); color: var(--green); }
 </style>
 </head>
 <body>
     <div class="title-bar">
-        <div>
-            <div class="title">NAS Proxy</div>
-            <div class="title-sub">点击按钮切换代理，或双击托盘图标</div>
-        </div>
+        <span class="title">NAS Proxy</span>
+        <span class="title-sub" id="appVersion">v1.3.0</span>
     </div>
 
     <div class="switch-card">
@@ -483,362 +181,101 @@ textarea {
         </div>
     </div>
 
-    <div class="config-card">
-        <div class="field">
-            <label class="field-label">代理模式</label>
-            <div class="mode-grid">
-                <button class="mode-card active" data-mode="global" type="button">
-                    <div class="mode-card-title">
-                        <span>全局代理</span>
-                        <svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                    </div>
-                    <div class="mode-card-desc">所有流量走 NAS</div>
-                </button>
-                <button class="mode-card" data-mode="smart" type="button">
-                    <div class="mode-card-title">
-                        <span>智能分流</span>
-                        <svg class="check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                    </div>
-                    <div class="mode-card-desc">按 PAC 规则分流</div>
-                </button>
-            </div>
-        </div>
-
-        <div class="field">
-            <label class="field-label">代理服务器</label>
-            <div class="proxy-input">
-                <div class="proxy-left">
-                    <input type="text" id="server" class="proxy-ip" value="192.168.1.100" spellcheck="false">
-                </div>
-                <div class="proxy-right">
-                    <input type="text" id="port" class="proxy-port" value="7890" inputmode="numeric">
-                </div>
-                <span class="proxy-sep">:</span>
-                <span class="conn-inline testing" id="connInline">
-                    <span class="conn-dot"></span>
-                    <span id="connText">检测中</span>
-                </span>
-            </div>
-        </div>
-
-        <button class="collapse-toggle" id="advancedToggle" type="button">
-            <svg class="chev" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg>
-            <span>高级设置</span>
-            <span class="hint">
-                <span class="custom-dot"></span>
-                <span id="advancedHint">例外地址 · 开机自启动</span>
-            </span>
+    <div class="mode-seg">
+        <button class="seg" data-mode="global" type="button">
+            <span class="seg-t">全部走代理</span>
+            <span class="seg-d">所有流量经 NAS</span>
         </button>
-        <div class="collapse-panel" id="advancedPanel">
-            <div class="collapse-panel-inner">
-                <div class="pac-block" id="pacBlock">
-                    <div>
-                        <label class="sub-label">PAC 规则来源</label>
-                        <div class="pac-tabs">
-                            <button class="pac-tab active" data-pac="builtin" type="button">内置规则</button>
-                            <button class="pac-tab" data-pac="local" type="button">本地文件</button>
-                            <button class="pac-tab" data-pac="remote" type="button">远程地址</button>
-                        </div>
-                    </div>
-                    <div class="pac-panel active" data-panel="builtin">
-                        <div class="pac-tabs sub" id="builtinPolicyTabs">
-                            <button class="pac-tab active" data-policy="direct-list" type="button">国内直连</button>
-                            <button class="pac-tab" data-policy="proxy-list" type="button">仅代理指定域名</button>
-                        </div>
-                        <div class="policy-block active" data-policy-block="direct-list">
-                            <div class="pac-hint">
-                                内置 <b id="chinaDirectCount">701</b> 条国内常见域名，外加全部
-                                <code>.cn</code> 域名，一律直连；其余域名全部走你的代理。
-                                清单只覆盖常见站 —— 个别漏掉的会走代理，你的代理自己还会再分流一次，不会出错。
-                            </div>
-                        </div>
-                        <div class="policy-block" data-policy-block="proxy-list">
-                            <label class="sub-label">
-                                代理域名 <span class="count" id="domainCount">32</span> 个（可编辑）
-                            </label>
-                            <textarea id="proxyDomains" style="height:88px"></textarea>
-                        </div>
-                    </div>
-                    <div class="pac-panel" data-panel="local">
-                        <label class="sub-label">PAC 文件路径</label>
-                        <div class="file-picker">
-                            <input type="text" id="localPacPath" placeholder="C:\Users\你的用户名\gfwlist.pac" readonly>
-                            <button class="browse-btn" id="browsePac" type="button">浏览</button>
-                        </div>
-                        <div class="pac-hint">
-                            推荐：<a href="https://github.com/zhiyi7/gfw-pac" target="_blank">gfw-pac</a> ·
-                            <a href="https://github.com/gfwlist/gfwlist" target="_blank">gfwlist</a> ·
-                            <a href="https://github.com/ACL4SSR/ACL4SSR" target="_blank">ACL4SSR</a> ·
-                            <a href="https://github.com/Loyalsoldier/domain-list-custom" target="_blank">Loyalsoldier</a>
-                        </div>
-                    </div>
-                    <div class="pac-panel" data-panel="remote">
-                        <label class="sub-label">PAC 文件 URL</label>
-                        <input type="text" id="remotePacUrl" placeholder="https://raw.githubusercontent.com/.../gfw.pac">
-                        <div class="pac-hint">
-                            启动时拉取一次；拉取失败会保留上一次缓存。
-                        </div>
-                    </div>
-
-                    <div class="pac-rewrite-row">
-                        <div class="pac-rewrite-text">
-                            <span class="auto-start-label">替换 PAC 内的代理地址</span>
-                            <div class="pac-hint" id="pacRewriteHint"></div>
-                        </div>
-                        <button class="toggle" id="pacRewriteToggle" type="button" title="点击切换"></button>
-                    </div>
-                </div>
-
-                <div class="pac-divider" id="pacDivider"></div>
-
-                <div>
-                    <label class="sub-label">例外地址（分号分隔）</label>
-                    <textarea id="override" style="height:96px"></textarea>
-                </div>
-
-                <div class="auto-start-row">
-                    <span class="auto-start-label">开机自启动</span>
-                    <button class="toggle" id="autoStartToggle" type="button" title="点击切换开机自启动"></button>
-                </div>
-            </div>
-        </div>
-
-        <div class="autosave-bar" id="autosaveBar">
-            <span class="dot"></span>
-            <span id="autosaveText">更改会自动保存</span>
-        </div>
+        <button class="seg" data-mode="smart" type="button">
+            <span class="seg-t">国内直连</span>
+            <span class="seg-d">只有国外流量走代理</span>
+        </button>
     </div>
 
-    <div class="footer">
-        <span id="appVersion">v1.0.0</span>
-        <button class="center" id="resetBtn">恢复默认</button>
-        <a href="https://github.com/ye1225/NASProxyTray" target="_blank">GitHub</a>
+    <div class="addr-row" id="addrView">
+        <span class="addr-dot" id="addrDot"></span>
+        <span class="addr-text" id="addrText">192.168.1.100:7890</span>
+        <span class="addr-sep">·</span>
+        <span class="addr-latency" id="addrLatency">检测中</span>
+        <button class="addr-edit" id="addrEdit" type="button">修改</button>
+    </div>
+
+    <div class="addr-row addr-edit-row hidden" id="addrEditRow">
+        <div class="addr-full">
+            <input class="addr-input ip" id="ipInput" type="text" spellcheck="false" placeholder="服务器地址">
+            <span class="addr-sep">:</span>
+            <input class="addr-input port" id="portInput" type="text" inputmode="numeric" placeholder="7890">
+            <button class="addr-done" id="addrDone" type="button">完成</button>
+        </div>
     </div>
 
     <div class="toast" id="toast"></div>
 
 <script>
-const DEFAULTS = {
-    server: '192.168.1.100',
-    port: '7890',
-    override: 'localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*',
-    domains: '*.google.com\n*.googleapis.com\n*.youtube.com\n*.googlevideo.com\n*.ytimg.com\n*.github.com\n*.githubusercontent.com\n*.openai.com\n*.chatgpt.com\n*.anthropic.com\n*.claude.ai\n*.twitter.com\n*.x.com\n*.facebook.com\n*.instagram.com\n*.telegram.org\n*.wikipedia.org\n*.reddit.com\n*.medium.com\n*.discord.com\n*.notion.so\n*.docker.com\n*.npmjs.com\n*.stackoverflow.com\n*.cloudflare.com\n*.amazonaws.com\n*.gstatic.com\n*.ggpht.com\n*.t.me\n*.whatsapp.com\n*.signal.org\n*.protonmail.com'
-};
+/* 首次运行（没有配置文件）时留空，由后端下发 firstRun=true 引导填写，
+   不再显示一个假的示例地址让人误以为配置丢了 */
+const FALLBACK = { server: '', port: '' };
 
 let isProxyOn = false;
-let autoStart = false;
-let pacRewrite = true;
-let currentMode = 'global';
-let currentPacSource = 'builtin';
-let builtinPolicy = 'direct-list';
+let currentMode = 'smart';
 let dirty = false;
-let connTestTimer = null;
-let saveTimer = null;         // 自动保存防抖
-let saveInFlight = false;     // 已发出 saveConfig、等待后端回执
-let saveWatchdog = null;      // 回执丢失看门狗
-let lastSavedAt = '';         // 最近一次保存成功的时间
+let saveTimer = null;
+let saveInFlight = false;
+let saveWatchdog = null;
+let connTimer = null;
+let toastTimer = null;
 let isConnected = !!(window.chrome && window.chrome.webview);
 
-const switchBtn       = document.getElementById('switchBtn');
-const switchIcon      = document.getElementById('switchIcon');
-const switchLine      = document.getElementById('switchLine');
-const statusTitle     = document.getElementById('statusTitle');
-const statusDesc      = document.getElementById('statusDesc');
-const statusBadge     = document.getElementById('statusBadge');
-const badgeText       = document.getElementById('badgeText');
-const serverInput     = document.getElementById('server');
-const portInput       = document.getElementById('port');
-const overrideInput   = document.getElementById('override');
-const autosaveBar     = document.getElementById('autosaveBar');
-const autosaveText    = document.getElementById('autosaveText');
-const resetBtn        = document.getElementById('resetBtn');
-const toast           = document.getElementById('toast');
-const advToggle       = document.getElementById('advancedToggle');
-const advPanel        = document.getElementById('advancedPanel');
-const advancedHint    = document.getElementById('advancedHint');
-const autoStartToggle = document.getElementById('autoStartToggle');
-const modeCards       = document.querySelectorAll('.mode-card');
-const pacBlock        = document.getElementById('pacBlock');
-const pacDivider      = document.getElementById('pacDivider');
-const pacTabs         = document.querySelectorAll('.pac-tabs:not(.sub) .pac-tab');
-const pacPanels       = document.querySelectorAll('.pac-panel');
-const proxyDomains    = document.getElementById('proxyDomains');
-const domainCount     = document.getElementById('domainCount');
-const policyTabs      = document.querySelectorAll('#builtinPolicyTabs .pac-tab');
-const policyBlocks    = document.querySelectorAll('.policy-block');
-const chinaCountEl    = document.getElementById('chinaDirectCount');
-const localPacPath    = document.getElementById('localPacPath');
-const browsePacBtn    = document.getElementById('browsePac');
-const remotePacUrl    = document.getElementById('remotePacUrl');
-const pacRewriteToggle= document.getElementById('pacRewriteToggle');
-const pacRewriteHint  = document.getElementById('pacRewriteHint');
-const connInline      = document.getElementById('connInline');
-const connText        = document.getElementById('connText');
+const switchBtn    = document.getElementById('switchBtn');
+const switchIcon   = document.getElementById('switchIcon');
+const switchLine   = document.getElementById('switchLine');
+const statusTitle  = document.getElementById('statusTitle');
+const statusDesc   = document.getElementById('statusDesc');
+const statusBadge  = document.getElementById('statusBadge');
+const badgeText    = document.getElementById('badgeText');
+const segButtons   = document.querySelectorAll('.seg[data-mode]');
+const addrView     = document.getElementById('addrView');
+const addrEditRow  = document.getElementById('addrEditRow');
+const addrDot      = document.getElementById('addrDot');
+const addrText     = document.getElementById('addrText');
+const addrLatency  = document.getElementById('addrLatency');
+const ipInput      = document.getElementById('ipInput');
+const portInput    = document.getElementById('portInput');
+const toast        = document.getElementById('toast');
+
+function getServer() { return ipInput.value.trim(); }
+function getPort()   { return portInput.value.trim(); }
 
 // ---------- 与 PS 后端的桥 ----------
 function postPS(action, data) {
     try {
         window.chrome.webview.postMessage(JSON.stringify(Object.assign({ action: action }, data || {})));
         return true;
-    } catch (e) { console.error('postPS failed', e); return false; }
+    } catch (e) { return false; }
 }
 
-// 把当前主题背景色告诉 PS，让窗体背景与之相同 → resize 时不会闪黑
+// 把主题告诉后端，让窗体背景与页面一致 → resize 时不闪
 function reportTheme() {
-    var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     postPS('theme', { dark: dark });
 }
 
-let toastTimer = null;
 function showToast(msg, type) {
     if (!msg) return;
     toast.textContent = msg;
     toast.className = 'toast show ' + (type || '');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { toast.className = 'toast'; }, 2400);
+    toastTimer = setTimeout(() => { toast.className = 'toast'; }, 2600);
 }
 
-function updateDomainCount() {
-    const lines = proxyDomains.value.split('\n').filter(l => l.trim());
-    domainCount.textContent = lines.length;
-}
-
-// 内置规则有两种策略：国内直连（默认）/ 仅代理指定域名
-function updateBuiltinPolicyView() {
-    policyTabs.forEach(t => t.classList.toggle('active', t.dataset.policy === builtinPolicy));
-    policyBlocks.forEach(b => b.classList.toggle('active', b.dataset.policyBlock === builtinPolicy));
-}
-
-// 第三方 PAC 里写的是作者本机的代理地址（gfw-pac 就是 127.0.0.1:3128），
-// 打开开关时会被替换成下面配置的服务器地址。这里把替换后的结果直接显示出来。
-function updatePacRewriteHint() {
-    pacRewriteToggle.classList.toggle('on', pacRewrite);
-    pacRewriteHint.textContent = '';
-
-    if (!pacRewrite) {
-        pacRewriteHint.textContent = '保持 PAC 文件里原有的代理地址';
-        return;
-    }
-    const host = serverInput ? serverInput.value.trim() : '';
-    const port = portInput ? portInput.value.trim() : '';
-    const a = document.createElement('span');
-    a.textContent = 'PAC 内代理地址 → ';
-    const b = document.createElement('span');
-    b.className = 'to';
-    b.textContent = (host && port) ? (host + ':' + port) : '（先填服务器与端口）';
-    pacRewriteHint.appendChild(a);
-    pacRewriteHint.appendChild(b);
-}
-
-function updateAdvancedHint() {
-    const baseHint = currentMode === 'smart' ? 'PAC 规则 · 例外 · 自启动' : '例外地址 · 开机自启动';
-    advancedHint.textContent = baseHint;
-
-    const customOverride = overrideInput.value.trim() !== DEFAULTS.override;
-    const customStart = autoStart === true;
-    const customPac = currentMode === 'smart' && (
-        (currentPacSource === 'local' && localPacPath.value.trim() !== '') ||
-        (currentPacSource === 'remote' && remotePacUrl.value.trim() !== '') ||
-        (currentPacSource === 'builtin' && (
-            builtinPolicy !== 'direct-list' ||
-            proxyDomains.value.trim() !== DEFAULTS.domains
-        )) ||
-        ((currentPacSource === 'local' || currentPacSource === 'remote') && pacRewrite === false)
-    );
-
-    advToggle.classList.toggle('has-custom', customOverride || customStart || customPac);
-}
-
-// ---------- 自动保存 ----------
-// 设计：UI 上不再有「保存」按钮。任何改动都会在停顿后自动落盘；
-// 关闭代理状态下只存配置，开启状态下顺带重新应用（后端 saveConfig 负责）。
-const SAVE_DEBOUNCE = 600;
-
-function setAutosaveBar(state, text) {
-    autosaveBar.className = 'autosave-bar' + (state ? ' ' + state : '');
-    autosaveText.textContent = text;
-}
-
-function nowHM() {
-    const d = new Date();
-    return d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
-}
-
-// 校验当前表单，返回 { ok, error }。校验不过就不落盘，避免把半截地址写进配置。
-function validateConfig() {
-    const server = serverInput.value.trim();
-    const port = portInput.value.trim();
-    if (!server) return { ok: false, error: '代理服务器不能为空' };
-    if (/[\s]/.test(server)) return { ok: false, error: '代理服务器不能含空格' };
-    const p = parseInt(port, 10);
-    if (!port || isNaN(p) || p < 1 || p > 65535) return { ok: false, error: '端口必须是 1-65535' };
-    if (currentMode === 'smart') {
-        if (currentPacSource === 'local' && !localPacPath.value.trim()) {
-            return { ok: false, error: '智能分流需先选择 PAC 文件' };
-        }
-        if (currentPacSource === 'remote' && !remotePacUrl.value.trim()) {
-            return { ok: false, error: '智能分流需填写 PAC 文件 URL' };
-        }
-    }
-    return { ok: true, error: '' };
-}
-
-function flushSave() {
-    clearTimeout(saveTimer);
-    saveTimer = null;
-    if (!dirty || saveInFlight) return;
-    if (!isConnected) { setAutosaveBar('err', '未连接后端，无法保存'); return; }
-
-    const v = validateConfig();
-    if (!v.ok) { setAutosaveBar('err', v.error + '，未保存'); return; }
-
-    saveInFlight = true;
-    // 关键：发出即视为已提交，立刻清掉 dirty。
-    // 否则 saved 回执到达时 dirty 仍为 true，会被当成「期间又有改动」再补一次
-    // 保存 → 回执 → 再补 → 无限循环（v1.2.5 卡在「保存中…」就是这个原因）。
-    dirty = false;
-    setAutosaveBar('pending', '保存中…');
-    const sent = postPS('saveConfig', { config: collectConfig(), quiet: true });
-    if (!sent) {
-        saveInFlight = false;
-        dirty = true;   // 没发出去，保留待保存状态
-        setAutosaveBar('err', '保存失败：未连接后端');
-        return;
-    }
-    // 看门狗：回执若丢失，5 秒后解除占位，允许下一次保存
-    clearTimeout(saveWatchdog);
-    saveWatchdog = setTimeout(() => {
-        if (saveInFlight) {
-            saveInFlight = false;
-            setAutosaveBar('err', '保存超时，请重试修改');
-        }
-    }, 5000);
-}
-
-function scheduleSave(delay) {
-    dirty = true;
-    setAutosaveBar('pending', '正在保存…');
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(flushSave, delay === undefined ? SAVE_DEBOUNCE : delay);
-}
-
-function markDirty() {
-    dirty = true;
-    scheduleSave();
-}
-function clearDirty() {
-    dirty = false;
-    clearTimeout(saveTimer);
-    saveTimer = null;
-}
-function modeLabel() { return currentMode === 'global' ? '全局代理' : '智能分流'; }
+function modeLabel() { return currentMode === 'global' ? '全部走代理' : '国内直连'; }
 
 function updateUI() {
     if (isProxyOn) {
         switchBtn.classList.add('on');
         statusTitle.textContent = '代理已开启';
         statusTitle.classList.add('on');
-        statusDesc.textContent = modeLabel() + ' · ' + serverInput.value + ':' + portInput.value;
+        statusDesc.textContent = modeLabel();
         switchIcon.setAttribute('d', 'M5 12.5l5 5L19.5 7');
         switchLine.style.display = 'none';
         statusBadge.classList.add('on');
@@ -853,141 +290,114 @@ function updateUI() {
         statusBadge.classList.remove('on');
         badgeText.textContent = '已停止';
     }
-    updateAdvancedHint();
-    updatePacRewriteHint();
+    addrText.textContent = getServer() ? (getServer() + ':' + getPort()) : '未设置地址';
+    segButtons.forEach(b => b.classList.toggle('active', b.dataset.mode === currentMode));
 }
 
 function setConnState(state, text) {
-    connInline.className = 'conn-inline' + (state ? ' ' + state : '');
-    connText.textContent = text;
+    addrDot.className = 'addr-dot' + (state ? ' ' + state : '');
+    addrLatency.textContent = text;
 }
 
 function testConnection() {
-    const host = serverInput.value.trim();
-    const port = portInput.value.trim();
-    const p = parseInt(port, 10);
-    if (!host || !port || isNaN(p) || p < 1 || p > 65535) {
-        setConnState('', '等待检测');
-        return;
-    }
-    setConnState('testing', '检测中');
-    postPS('testConnection', { server: host, port: port });
+    const host = getServer();
+    const p = parseInt(getPort(), 10);
+    if (!host || isNaN(p) || p < 1 || p > 65535) { setConnState('', '—'); return; }
+    postPS('testConnection', { server: host, port: getPort() });
 }
 
 function scheduleConnTest() {
-    clearTimeout(connTestTimer);
-    connTestTimer = setTimeout(testConnection, 400);
+    clearTimeout(connTimer);
+    connTimer = setTimeout(testConnection, 450);
+}
+
+// ---------- 自动保存：改完 600ms 落盘，失败才提示 ----------
+const SAVE_DEBOUNCE = 600;
+
+function validate() {
+    const host = getServer();
+    const port = getPort();
+    if (!host) return '服务器地址不能为空';
+    if (/\s/.test(host)) return '服务器地址不能含空格';
+    const p = parseInt(port, 10);
+    if (!port || isNaN(p) || p < 1 || p > 65535) return '端口必须是 1-65535';
+    return '';
 }
 
 function collectConfig() {
-    return {
-        server: serverInput.value.trim(),
-        port: portInput.value.trim(),
-        override: overrideInput.value,
-        mode: currentMode,
-        pacSource: currentPacSource,
-        builtinPolicy: builtinPolicy,
-        pacDomains: proxyDomains.value,
-        localPacPath: localPacPath.value.trim(),
-        remotePacUrl: remotePacUrl.value.trim(),
-        pacRewrite: pacRewrite,
-        autoStart: autoStart
-    };
+    return { server: getServer(), port: getPort(), mode: currentMode };
+}
+
+function flushSave() {
+    clearTimeout(saveTimer); saveTimer = null;
+    if (!dirty || saveInFlight) return;
+    if (!isConnected) { dirty = false; showToast('未连接后端，设置未保存', 'error'); return; }
+
+    const err = validate();
+    if (err) { showToast(err, 'error'); return; }
+
+    // 发出即清 dirty：否则回执到达时会被当成「期间又改了」→ 再保存 → 死循环
+    dirty = false;
+    saveInFlight = true;
+    const sent = postPS('saveConfig', { config: collectConfig(), quiet: true });
+    if (!sent) { saveInFlight = false; dirty = true; showToast('保存失败：未连接后端', 'error'); return; }
+
+    clearTimeout(saveWatchdog);
+    saveWatchdog = setTimeout(() => {
+        if (saveInFlight) { saveInFlight = false; showToast('保存超时，请重试', 'error'); }
+    }, 5000);
+}
+
+function markDirty() {
+    dirty = true;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(flushSave, SAVE_DEBOUNCE);
 }
 
 function applyConfig(cfg) {
     if (!cfg) return;
-    serverInput.value     = cfg.server || DEFAULTS.server;
-    portInput.value       = cfg.port   || DEFAULTS.port;
-    overrideInput.value   = cfg.override || DEFAULTS.override;
-    proxyDomains.value    = cfg.pacDomains || DEFAULTS.domains;
-    localPacPath.value    = cfg.localPacPath || '';
-    remotePacUrl.value    = cfg.remotePacUrl || '';
-
-    currentMode = cfg.mode || 'global';
-    modeCards.forEach(c => c.classList.toggle('active', c.dataset.mode === currentMode));
-
-    currentPacSource = cfg.pacSource || 'builtin';
-    pacTabs.forEach(t => t.classList.toggle('active', t.dataset.pac === currentPacSource));
-    pacPanels.forEach(p => p.classList.toggle('active', p.dataset.panel === currentPacSource));
-
-    builtinPolicy = cfg.builtinPolicy || 'direct-list';
-    updateBuiltinPolicyView();
-    if (cfg.chinaCount && chinaCountEl) chinaCountEl.textContent = cfg.chinaCount;
-
-    const smart = (currentMode === 'smart');
-    pacBlock.classList.toggle('visible', smart);
-    pacDivider.classList.toggle('visible', smart);
-
-    autoStart = !!cfg.autoStart;
-    autoStartToggle.classList.toggle('on', autoStart);
-
-    pacRewrite = cfg.pacRewrite !== false;
-
+    if (cfg.server) ipInput.value = cfg.server;
+    if (cfg.port) portInput.value = cfg.port;
+    currentMode = (cfg.mode === 'global') ? 'global' : 'smart';
     isProxyOn = !!cfg.enabled;
-
-    updateDomainCount();
-    clearDirty();
+    clearTimeout(saveTimer); saveTimer = null; dirty = false;
     updateUI();
+    scheduleConnTest();
 }
 
 function handlePSMessage(e) {
     let msg;
-    try { msg = JSON.parse(e.data); } catch { return; }
+    try { msg = JSON.parse(e.data); } catch (err) { return; }
     isConnected = true;
 
     switch (msg.action) {
         case 'config':
-            if (msg.version) {
-                var fv = document.getElementById('appVersion');
-                if (fv) fv.textContent = 'v' + msg.version;
-            }
+            if (msg.version) document.getElementById('appVersion').textContent = 'v' + msg.version;
             applyConfig(msg.config);
-            scheduleConnTest();
+            if (msg.firstRun) {
+                showToast('首次使用：请填写代理服务器地址');
+                openAddrEdit();
+            }
             break;
 
         case 'state':
             isProxyOn = !!msg.enabled;
             updateUI();
-            if (msg.msg) showToast(msg.msg, msg.ok ? 'success' : 'error');
+            if (msg.msg && msg.ok === false) showToast(msg.msg, 'error');
+            scheduleConnTest();
             break;
 
         case 'saved':
-            clearTimeout(saveWatchdog);
-            saveWatchdog = null;
+            clearTimeout(saveWatchdog); saveWatchdog = null;
             saveInFlight = false;
-            if (msg.ok === false) {
-                // 配置本身已落盘，失败的是「应用」这一步（比如代理不可达）
-                setAutosaveBar('err', msg.msg || '应用失败');
-                break;
-            }
-            lastSavedAt = nowHM();
-            setAutosaveBar('ok', '已自动保存 ' + lastSavedAt);
-            if (dirty) {
-                // 保存期间用户又改了 → 立刻补一次，别把改动晾着
-                flushSave();
-            } else if (msg.config) {
-                applyConfig(msg.config);   // 回写后端规整后的值
-            }
-            break;
-
-        case 'toast':
-            showToast(msg.msg, msg.type);
+            if (msg.ok === false) { showToast(msg.msg || '应用失败', 'error'); break; }
+            if (msg.config) applyConfig(msg.config);
+            if (dirty) flushSave();
             break;
 
         case 'connResult':
             if (msg.ok) setConnState('ok', msg.latency + 'ms');
             else        setConnState('fail', '不可达');
-            break;
-
-        case 'filePicked':
-            if (msg.path) {
-                localPacPath.value = msg.path;
-                markDirty();
-                updateAdvancedHint();
-            } else {
-                showToast('已取消选择');
-            }
             break;
     }
 }
@@ -996,123 +406,61 @@ if (window.chrome && window.chrome.webview) {
     window.chrome.webview.addEventListener('message', handlePSMessage);
 }
 
-// ---------- 事件 ----------
-serverInput.addEventListener('input', () => { markDirty(); scheduleConnTest(); updatePacRewriteHint(); });
-portInput.addEventListener('input', (e) => {
-    e.target.value = e.target.value.replace(/[^0-9]/g, '');
-    markDirty();
-    scheduleConnTest();
-    updatePacRewriteHint();
-});
-
+// ---------- 交互 ----------
 switchBtn.addEventListener('click', () => {
     const target = !isProxyOn;
     isProxyOn = target;
     updateUI();
-    showToast(target ? '正在开启代理…' : '正在关闭代理…');
     postPS('toggleProxy', { enabled: target, config: collectConfig() });
+    scheduleConnTest();
 });
 
-modeCards.forEach(card => {
-    card.addEventListener('click', () => {
-        if (card.classList.contains('active')) return;
-        modeCards.forEach(c => c.classList.remove('active'));
-        card.classList.add('active');
-        currentMode = card.dataset.mode;
-
-        advToggle.classList.remove('expanded');
-        advPanel.classList.remove('expanded');
-
-        const smart = (currentMode === 'smart');
-        pacBlock.classList.toggle('visible', smart);
-        pacDivider.classList.toggle('visible', smart);
-
-        markDirty();
+segButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+        if (btn.dataset.mode === currentMode) return;
+        currentMode = btn.dataset.mode;
         updateUI();
-    });
-});
-
-pacTabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-        pacTabs.forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        currentPacSource = tab.dataset.pac;
-        pacPanels.forEach(p => p.classList.toggle('active', p.dataset.panel === currentPacSource));
         markDirty();
-        updateAdvancedHint();
     });
 });
 
-policyTabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-        builtinPolicy = tab.dataset.policy;
-        updateBuiltinPolicyView();
-        markDirty();
-        updateAdvancedHint();
-    });
-});
+function openAddrEdit() {
+    addrView.classList.add('hidden');
+    addrEditRow.classList.remove('hidden');
+    ipInput.focus();
+    ipInput.select();
+}
 
-proxyDomains.addEventListener('input', () => {
-    updateDomainCount();
+function closeAddrEdit() {
+    const err = validate();
+    if (err) { showToast(err, 'error'); ipInput.focus(); return; }
+    addrEditRow.classList.add('hidden');
+    addrView.classList.remove('hidden');
+    updateUI();
     markDirty();
-    updateAdvancedHint();
+    scheduleConnTest();
+}
+
+document.getElementById('addrView').addEventListener('click', openAddrEdit);
+document.getElementById('addrDone').addEventListener('click', closeAddrEdit);
+
+portInput.addEventListener('input', (e) => {
+    e.target.value = e.target.value.replace(/[^0-9]/g, '');
 });
+ipInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') closeAddrEdit(); });
+portInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') closeAddrEdit(); });
 
-browsePacBtn.addEventListener('click', () => { postPS('browseFile'); });
-
-remotePacUrl.addEventListener('input', () => {
-    markDirty();
-    updateAdvancedHint();
-});
-
-autoStartToggle.addEventListener('click', () => {
-    const target = !autoStart;
-    autoStart = target;
-    autoStartToggle.classList.toggle('on', autoStart);
-    postPS('setAutoStart', { enabled: target });
-    updateAdvancedHint();
-});
-
-pacRewriteToggle.addEventListener('click', () => {
-    pacRewrite = !pacRewrite;
-    pacRewriteToggle.classList.toggle('on', pacRewrite);
-    updatePacRewriteHint();
-    updateAdvancedHint();
-    markDirty();
-});
-
-overrideInput.addEventListener('input', () => {
-    markDirty();
-    updateAdvancedHint();
-});
-
-advToggle.addEventListener('click', () => {
-    advToggle.classList.toggle('expanded');
-    advPanel.classList.toggle('expanded');
-});
-
-resetBtn.addEventListener('click', () => { postPS('resetConfig'); });
-
-// Ctrl/Cmd+S = 立即保存（正常情况用不到，防手快的）
 document.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault();
-        flushSave();
-    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); flushSave(); }
 });
 
-// 前端异常回传后端，写进 ProxyTray.log（无 devtools 时唯一的排查线索）
+// 前端异常回传，写进 ProxyTray.log（打包后没 devtools，这是唯一线索）
 window.addEventListener('error', (e) => {
     try {
-        postPS('uiError', {
-            msg: String(e.message || ''),
-            src: String(e.filename || ''),
-            line: e.lineno || 0
-        });
+        postPS('uiError', { msg: String(e.message || ''), src: String(e.filename || ''), line: e.lineno || 0 });
     } catch (_) { }
 });
 
-// 窗口失焦 / 隐藏前把待保存的改动落盘，避免防抖窗口内关窗丢改动
 window.addEventListener('blur', () => { if (dirty) flushSave(); });
 document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden' && dirty) flushSave();
@@ -1120,21 +468,14 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('beforeunload', () => { if (dirty) flushSave(); });
 
 // ---------- 初始化 ----------
-proxyDomains.value   = DEFAULTS.domains;
-overrideInput.value  = DEFAULTS.override;
-updateDomainCount();
+ipInput.value = FALLBACK.server;
+portInput.value = FALLBACK.port;
 updateUI();
-setAutosaveBar('', '更改会自动保存');
-
-// 向 PS 要当前配置
 postPS('getConfig');
-
-// 报告主题 + 监听主题切换
 reportTheme();
 try {
-    window.matchMedia('(prefers-color-scheme: dark)')
-          .addEventListener('change', reportTheme);
-} catch (e) {}
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', reportTheme);
+} catch (e) { }
 </script>
 </body>
 </html>

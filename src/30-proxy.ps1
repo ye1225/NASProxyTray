@@ -119,6 +119,62 @@ function Stop-PacServer {
 }
 
 
+# ---------- 用户自定义国内直连清单 ----------
+# 文件：%LOCALAPPDATA%\NASProxy\my-direct.txt，一行一个域名，# 开头为注释。
+# 托盘菜单「编辑国内直连规则」可打开编辑；保存关闭记事本后自动重新应用。
+# 写 example.com 即覆盖其所有子域名（PAC 按后缀逐段匹配）。
+function Get-CustomDirectDomains {
+    $out = New-Object System.Collections.Generic.List[string]
+    try {
+        $cf = Join-Path $script:DataDir 'my-direct.txt'
+        if (Test-Path -LiteralPath $cf) {
+            foreach ($line in (Get-Content -LiteralPath $cf -ErrorAction SilentlyContinue)) {
+                $d = ([string]$line).Trim().ToLower()
+                if (-not $d -or $d.StartsWith('#')) { continue }
+                if ($d.StartsWith('*.')) { $d = $d.Substring(2) }
+                if ($d -and -not $out.Contains($d)) { $out.Add($d) }
+            }
+        }
+    } catch { }
+    return $out.ToArray()
+}
+
+# ---------- 自动更新的国内直连清单 ----------
+# 文件：%LOCALAPPDATA%\NASProxy\china-direct.auto.txt，由托盘菜单
+# 「更新直连规则（联网）」生成（已是归并后的基域列表）。文件不存在则只用内置清单。
+function Get-AutoDirectDomains {
+    $out = New-Object System.Collections.Generic.List[string]
+    try {
+        $af = Join-Path $script:DataDir 'china-direct.auto.txt'
+        if (Test-Path -LiteralPath $af) {
+            foreach ($line in (Get-Content -LiteralPath $af -ErrorAction SilentlyContinue)) {
+                $d = ([string]$line).Trim().ToLower()
+                if (-not $d -or $d.StartsWith('#')) { continue }
+                if ($d.StartsWith('*.')) { $d = $d.Substring(2) }
+                if ($d) { $out.Add($d) }
+            }
+        }
+    } catch { }
+    return $out.ToArray()
+}
+
+function New-DirectRulesTemplate {
+    param([string]$Path)
+    $text = @'
+# NAS Proxy · 自定义国内直连清单
+# 一行一个域名，以 # 开头的行是注释。
+# 命中这里的域名在「国内直连」模式下直接连接、不走代理。
+# 写 example.com 会自动覆盖它的所有子域名（如 a.example.com）。
+# 保存并关闭记事本后 1~2 秒自动生效（需代理处于开启状态）。
+#
+# 示例（去掉行首的 # 即生效）：
+# example.com
+# mycompany.cn
+# nas.local
+'@
+    Set-Content -LiteralPath $Path -Value $text -Encoding UTF8
+}
+
 function Build-BuiltinPac {
     param(
         [string]$DomainsText,
@@ -138,6 +194,19 @@ function Build-BuiltinPac {
             if ($k -and $seen.Add($k)) { $entries.Add("  `"$k`":1") }
         }
 
+        $autoDirect = @(Get-AutoDirectDomains)
+        foreach ($d in $autoDirect) {
+            if ($d -and $seen.Add($d)) { $entries.Add("  `"$d`":1") }
+        }
+        $script:LastAutoDirectCount = @($autoDirect).Count
+
+        $customDirect = @(Get-CustomDirectDomains)
+        foreach ($d in $customDirect) {
+            if ($d -and $seen.Add($d)) { $entries.Add("  `"$d`":1") }
+        }
+        $script:LastCustomDirectCount = @($customDirect).Count
+
+        $script:LastPacEntryCount = $entries.Count
         $table = ($entries -join ",`n")
 
         # 整段后缀直连（如 .cn）
@@ -277,7 +346,7 @@ function Apply-ProxyConfig {
                 if ([string]::IsNullOrWhiteSpace($policy)) { $policy = 'direct-list' }
                 $pacContent = Build-BuiltinPac -DomainsText $Config.pacDomains -ProxyAddr $proxyAddr -Policy $policy
                 if ($policy -eq 'direct-list') {
-                    Write-Host "[ProxyTray] 内置 PAC 策略=国内直连  清单 $(@($script:ChinaDirectDomains).Count) 条 + $(@($script:ChinaDirectSuffixes).Count) 个后缀，其余走代理"
+                    Write-Host "[ProxyTray] 内置 PAC 策略=国内直连  清单 $(@($script:ChinaDirectDomains).Count) 条 + 自动 $($script:LastAutoDirectCount) 条 + 自定义 $($script:LastCustomDirectCount) 条 + $(@($script:ChinaDirectSuffixes).Count) 个后缀（去重后进表 $($script:LastPacEntryCount) 条），其余走代理"
                 } else {
                     Write-Host "[ProxyTray] 内置 PAC 策略=仅代理指定域名"
                 }
@@ -344,9 +413,9 @@ function Set-AutoStart {
             $ws = New-Object -ComObject WScript.Shell
             $sc = $ws.CreateShortcut($lnk)
             if ($script:appIsExe) {
-                # 打包成 exe：快捷方式直接指向自己
+                # 打包成 exe：快捷方式直接指向自己；--silent = 开机自启不弹面板
                 $sc.TargetPath       = $script:appSelf
-                $sc.Arguments        = ''
+                $sc.Arguments        = '--silent'
                 $sc.WorkingDirectory = $root
                 $sc.WindowStyle      = 7
                 $sc.IconLocation     = "$($script:appSelf),0"
@@ -354,7 +423,7 @@ function Set-AutoStart {
                 $psExe = Join-Path $PSHOME 'powershell.exe'
                 if (-not (Test-Path -LiteralPath $psExe)) { $psExe = 'powershell.exe' }
                 $sc.TargetPath       = $psExe
-                $sc.Arguments        = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$($script:appSelf)`""
+                $sc.Arguments        = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$($script:appSelf)`" --silent"
                 $sc.WorkingDirectory = $root
                 $sc.WindowStyle      = 7
             }
@@ -373,4 +442,18 @@ function Get-AutoStart {
     $startupDir = [Environment]::GetFolderPath('Startup')
     if (-not $startupDir) { return $false }
     return (Test-Path (Join-Path $startupDir 'NASProxy.lnk'))
+}
+
+# 旧版本（<=v1.2.8）写的自启快捷方式没有 --silent 参数；
+# 启动时用它判断要不要顺手把快捷方式升级成带参版本
+function Test-AutoStartSilent {
+    $startupDir = [Environment]::GetFolderPath('Startup')
+    if (-not $startupDir) { return $false }
+    $lnk = Join-Path $startupDir 'NASProxy.lnk'
+    if (-not (Test-Path $lnk)) { return $false }
+    try {
+        $ws = New-Object -ComObject WScript.Shell
+        $sc = $ws.CreateShortcut($lnk)
+        return ([string]$sc.Arguments -match '--silent')
+    } catch { return $false }
 }

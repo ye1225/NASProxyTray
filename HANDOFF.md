@@ -44,10 +44,17 @@ GitHub Release 页面读到）。
 | **v1.2.6** | 回归修复 | 修 v1.2.5 引入的**自动保存无限循环**（`flushSave` 未清 `dirty`），并加 5 秒看门狗 |
 | **v1.2.7** | 圆角 + 托盘交互 | ①窗口圆角改走 **DWM 合成**，消除 1-bit region 锯齿（挖出 ps2exe 谎报系统版本的老 bug）；②**双击托盘=切换代理、单击=开界面**，图标三色区分模式；③收录三轮交互测速脚本 |
 | **v1.2.8** | 脱敏 | 默认代理地址改为示例值 `192.168.1.100:7890`（已有用户的配置不受影响）；README 交互说明同步；HANDOFF 补版本沿革与隐私自检。另在 git 历史层面把个人邮箱全量重写为 noreply |
+| **v1.3.0** | **砍到只剩两个功能 + 修「小屏幕」** | ①修 **size 上报 bug**（`$w/$h` 从未赋值 → 窗口永远钉死 420×500，展开高级设置只能在小窗里滚动）；②界面从「单页堆 6 层」重做成**单屏 360px**：电源卡 + 两格模式 + 地址行（点「修改」原位展开）；PAC/例外地址/自启等 UI 全撤，代码保留；③托盘菜单可直接切模式、开关自启；④**自启带 `--silent`**，开机只留托盘不弹面板；⑤**开机先探 NAS 再开代理**（2.5s 超时，不通则不开 + 气泡），杜绝「开机全家断网」；⑥失焦隐藏 150→300ms |
+| **v1.3.1** | 观感 + 规则可维护 | ①托盘图标改 96px 高分辨率绘制、留白 8%→2%、去描边（高分屏不再发虚显小）；②新增**用户自定义直连清单** `my-direct.txt` + 托盘菜单「编辑国内直连规则」（记事本关闭后自动重建 PAC） |
+| **v1.3.2** | 规则可联网更新 | 托盘菜单「更新直连规则（联网）」：后台 runspace 下载上游清单 → 清洗 → 落盘 `china-direct.auto.txt` → 自动重建 PAC；失败不动旧文件 |
+| **v1.3.3** → **v1.3.4** | 更新链路两次修正 | v1.3.3 加「按长度优先收录 30000 条」但漏删旧 10 万条防呆线 → v1.3.4 把防呆线移到 50 万（教训：加新分支前先找同类旧判断） |
+| **v1.3.5** | 换精选源 | 长度启发式把 `0.zone`/`00042.com` 这类垃圾短域塞满 3 万条 → 改为**精选源优先**（ACL4SSR ChinaDomain，人工精选）+ felix 全量兜底，源不可用自动降级；清洗加「首段至少两个字母」 |
+| **v1.3.6** | 计数修正 | 日志 `自动 N 条` 恒显示 1（`@(整数).Count` = 1 的双层包裹），改直出；日志补「去重后进表 N 条」（实测 703 内置 ∪ 557 自动 = 746） |
 
 **演进主线**：单文件能用 → 工程化（模块化 + 打包 + 更新）→ 按真实反馈逐个打补丁
-（高分屏、第三方 PAC、分流策略、交互）→ 打磨观感（圆角、托盘）。每一次修复的
-「为什么」都记在本文件对应章节里，改代码前先读那一段。
+（高分屏、第三方 PAC、分流策略、交互）→ 打磨观感（圆角、托盘）→ **做减法**：
+v1.3 起把功能砍到「开代理 + 国内直连/全局切换」两件事，其余全部收进托盘菜单，
+界面只剩一屏。每一次修复的「为什么」都记在本文件对应章节里，改代码前先读那一段。
 
 ---
 
@@ -56,19 +63,21 @@ GitHub Release 页面读到）。
 ```
 <仓库根目录>\
 ├── ProxyTray.ps1                     薄入口：定位 src\ 并按文件名顺序 dot-source
-├── src\                              ← 真正的实现，10 个模块
-│   ├── 00-boot.ps1                   启动地基（含 DPI 声明、资源释放）
+├── src\                              ← 真正的实现，12 个模块
+│   ├── 00-boot.ps1                   启动地基（含 DPI 声明、资源释放、--silent 识别）
 │   ├── 10-native.ps1                 原生互操作（6 个 Add-Type 块）
 │   ├── 20-config.ps1                 配置读写 + 刷新系统代理
-│   ├── 30-proxy.ps1                  代理引擎（注册表 / PAC 服务 / 连通测试 / 自启）
-│   ├── 40-icon.ps1                   托盘图标绘制
+│   ├── 30-proxy.ps1                  代理引擎（注册表 / PAC 服务 / 连通测试 / 自启 / 三层直连清单）
+│   ├── 35-china-direct.ps1           内置国内直连清单（703 条 + `.cn` 后缀）
+│   ├── 36-direct-update.ps1          联网更新直连清单（下载 / 清洗 / 归并 / 落盘）
+│   ├── 40-icon.ps1                   托盘图标绘制（96px 高分辨率画布）
 │   ├── 50-window.ps1                 窗口尺寸定位 / Form / WebView2 宿主 / DPI 换算
-│   ├── 60-tray.ps1                   NotifyIcon / 深色中文右键菜单
+│   ├── 60-tray.ps1                   NotifyIcon / 深色中文右键菜单 / 模式切换
 │   ├── 70-message.ps1                WebView2 初始化 + 前端消息分发
 │   ├── 80-update.ps1                 检查更新
-│   └── 90-main.ps1                   Form 生命周期 / 消息循环 / 兜底清理
+│   └── 90-main.ps1                   Form 生命周期 / 消息循环 / 开机探测 / 兜底清理
 ├── lib\                              WebView2 运行时依赖（3 个 DLL，仍入库）
-├── ui\index.html                     WebView2 界面（420px 固定宽度设计）
+├── ui\index.html                     WebView2 界面（360px × 约 252px 单屏，永不滚动）
 ├── build.ps1                         打包脚本 → dist\
 ├── VERSION                           版本号唯一来源
 ├── app.ico                           程序图标（build.ps1 依赖）
@@ -194,6 +203,9 @@ Get-ChildItem -LiteralPath $srcPath -Filter '*.ps1' |
 | `Start-PacServer` | `TcpListener` 服务 `http://127.0.0.1:<随机端口>/proxy.pac` |
 | `Stop-PacServer` | 停 listener 让阻塞的 `AcceptTcpClient` 醒来 → 优雅退出 |
 | `Build-BuiltinPac` | 按 `-Policy` 生成内置 PAC（两种策略，见下） |
+| `Get-CustomDirectDomains` | 读 `%LOCALAPPDATA%\NASProxy\my-direct.txt`（用户手工清单，v1.3.1） |
+| `Get-AutoDirectDomains` | 读 `china-direct.auto.txt`（联网更新清单，v1.3.2） |
+| `New-DirectRulesTemplate` | 首次打开自定义清单时写模板（含注释与示例） |
 | `Convert-PacProxyEndpoint` | **把外部 PAC 里写死的代理地址换成本应用配置的地址**（见下） |
 | `Apply-ProxyConfig` | 按 config 应用（全局 / PAC / 关闭），外部 PAC 会先过一遍地址替换 |
 | `Test-ProxyConn` | `TcpClient` 连接测试，返回延迟 ms |
@@ -211,7 +223,7 @@ Get-ChildItem -LiteralPath $srcPath -Filter '*.ps1' |
 | `direct-list`（默认） | 命中清单 → `DIRECT`；否则 → `PROXY <你的地址>` | `src/35-china-direct.ps1` 里的 703 条清单 + `.cn` 后缀 |
 | `proxy-list`（旧行为） | 命中清单 → `PROXY`；否则 → `DIRECT` | 配置里的 `pacDomains`（用户可编辑） |
 
-`direct-list` 生成的 PAC 结构（约 13 KB）：
+`direct-list` 生成的 PAC 结构（约 14 KB / 746 条）：
 
 ```js
 var CHINA_DIRECT = { "baidu.com":1, "qq.com":1, ... };   // 703 条
@@ -254,6 +266,35 @@ function FindProxyForURL(url, host) {
 >
 > **踩过的坑**：手工重打品牌词表时漏了 `xhscdn`（小红书图片 CDN），
 > 导致清单少一条且 `diff` 只在一处报差异 —— 改词表后务必重新比对生成结果。
+
+#### 三层直连规则（v1.3.1 ~ v1.3.6）
+
+`direct-list` 策略下进 PAC 的域名来自三个来源，按顺序合并去重（HashSet）：
+
+| 层 | 文件 / 位置 | 谁维护 | 规模（实测） |
+| --- | --- | --- | --- |
+| 内置 | `src/35-china-direct.ps1` + `.cn` 后缀 | 改源码重新打包 | 703 条 |
+| 自动 | `%LOCALAPPDATA%\NASProxy\china-direct.auto.txt` | 托盘菜单「更新直连规则（联网）」 | 557 条 |
+| 自定义 | `%LOCALAPPDATA%\NASProxy\my-direct.txt` | 用户自己（托盘菜单「编辑国内直连规则」） | 用户决定 |
+
+三层并集（去重后）实测 746 条；自动层与内置高度重合（514/557），净增仅 43 条 —— 说明
+两层同源（都来自 ACL4SSR 系精选），**不会因为「更新」把 PAC 撑大**。
+
+**联网更新链路**（`36-direct-update.ps1`）：runspace 后台下载 → 解析（兼容
+`DOMAIN-SUFFIX,` / `DOMAIN,` / `server=/d/`）→ 清洗（剔被墙站关键词、剔 `.cn`、
+首段须含两个字母）→ 只留基域（父域已在表内则丢弃，PAC 后缀匹配已覆盖）→ 落盘 →
+`Forms.Timer` 轮询完成 → 自动 `Apply-ProxyConfig` 重建 PAC。
+
+- **选源顺序**：`ACL4SSR/ACL4SSR ChinaDomain.list`（精选）→ `felixonmars/dnsmasq-china-list`（全量兜底）。
+  某源拿不到或清洗后不足 50 条 → **自动降级到下一个源**，不直接报错。
+- **只在兜底源才可能触发封顶**：按域名长度优先收录 30,000 条（PAC ≈ 700KB）。
+  v1.3.5 之前这条封顶是默认路径，结果把 `0.zone`/`00042.com` 这类垃圾短域塞满 3 万条 ——
+  **长度 ≠ 重要度，这是被推翻的启发式**，别再走回头路。
+- **失败不动旧文件**：断网 / CDN 抽风时原有清单继续生效，气泡提示错误。
+- **自定义层不会被联网更新覆盖**（两个文件分开）。
+
+> 计数坑：`@($script:LastAutoDirectCount).Count` 对整数会得到 **1**（把标量包成单元素数组）。
+> v1.3.6 前日志恒显示「自动 1 条」，排查时别看错。
 
 #### 外部 PAC 的代理地址替换（v1.2.2）
 
@@ -303,21 +344,33 @@ NotifyIcon + 深色中文右键菜单。**左键：单击 = 立即打开主界�
 （`Invoke-ProxyToggle`，与前端 `toggleProxy` 同一套动作：落盘 → `Apply-ProxyConfig` →
 图标 → PostWebMessage('state')）。双击不闪界面的原理：双击的两条消息连续派发，
 第一次点击 Show 的窗口还没来得及绘制就被收起（`trayShownByClick` 标记）。
-菜单项顺序：
+菜单项顺序（v1.3.6）：
 
 ```
 [发现新版本 vX.Y.Z · 点击下载]   ← 默认隐藏，仅 80-update 发现新版时显示
 开启代理 / 关闭代理              ← 文字随状态变（menu_Opened 里刷新）
+──────────
+全部走代理  ✓                    ← 单选，点击即切（Set-ProxyMode -Source menu）
+国内直连
+──────────
 显示 / 隐藏窗口
+编辑国内直连规则                 ← 写模板 → notepad → 关闭后自动重建 PAC
+更新直连规则（联网）
+开机自启动  ✓
 打开开发者工具
 ──────────
 立即清除系统代理
 复位窗口位置
 检查更新
 ──────────
-v1.2.0                          ← 灰色禁用，仅展示版本
+v1.3.6                          ← 灰色禁用，仅展示版本
 退出
 ```
+
+**日常操作不必开面板**：开关、切模式、改规则、开关自启全在菜单里，面板只用于看状态。
+菜单渲染走 `DarkMenuRenderer`（v1.3.0 重写）：细圆角外框、浅灰圆角 hover、
+`ShowCheckMargin=true` 留勾选槽 + 自绘蓝色对勾、分隔线 inset 10px。
+`--silent` 启动时只建托盘不 `Show()` 面板（见 `Show-ReadyForm`）。
 
 菜单的 Padding 按 `$script:DpiScale` 缩放（物理像素，WinForms 不代缩）。
 **字体固定 9pt，绝不能手工乘 DpiScale** —— GDI+ 渲染 point 字体会随设备 DPI
@@ -327,11 +380,25 @@ v1.2.0                          ← 灰色禁用，仅展示版本
 注入 JS（禁动画、隐藏滚动条、`.title-bar` 拖拽、Escape 隐藏、上报尺寸）+ WebView2 初始化 + 消息分发。
 另注册 `NewWindowRequested`，让界面里的外链走默认浏览器打开。
 
+> **size 上报曾是死代码（v1.3.0 修）**：`'size'` 分支里写的是 `$w` / `$h`，
+> 这两个变量从未赋值（应为 `$obj.w` / `$obj.h`）。PowerShell 里 `$null -lt 200` 恒真
+> → 直接 `return`，于是「窗口跟着内容长高」整套机制从未生效，窗口永远钉死 420×500。
+> 这是「展开高级设置后内容被顶进小窗滚动」的真正根因，不是 CSS 问题。
+> 现在前端上报 + 启动后先按内容尺寸 `SetBounds` 再显示，避免开场跳变。
+
 ### `80-update.ps1`
 见下方「检查更新」。
 
 ### `90-main.ps1`
-Form 生命周期、`Application.Run`、退出清理（含更新检查的 Timer 与 runspace 释放）。
+Form 生命周期、`Application.Run`、退出清理（含更新检查 / 规则更新 / 记事本监听的 Timer 与 runspace 释放）。
+
+**开机探测保护（v1.3.0）**：配置是「开启」时不再无脑写注册表。启动先 `Test-ProxyConn`
+（2500ms 超时）——通才开；不通就**先不开** + 气泡「NAS 未就绪，代理未开启」。
+目的：NAS 休眠 / 晚开机 / Wi-Fi 没连上时，不要出现「系统代理指向不存在的地址 → 全家断网」，
+用户第一反应会是「电脑坏了」。
+
+**自启静默（v1.3.0）**：自启快捷方式带 `--silent`，只留托盘图标、不弹面板；手动双击 exe
+仍弹一次（那时本来就要看界面）。旧快捷方式会在下次启动时自动补参数（`Test-AutoStartSilent`）。
 
 ---
 

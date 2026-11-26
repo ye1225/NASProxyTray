@@ -10,8 +10,8 @@ $script:lockedWidth = 0
 $script:baseRight   = $null
 $script:baseBottom  = $null
 
-$script:initW = 420
-$script:initH = 500
+$script:initW = 360
+$script:initH = 264
 $script:initLeft = $script:wa.Right  - $script:initW - $script:margin
 $script:initTop  = $script:wa.Bottom - $script:initH - $script:margin
 
@@ -48,8 +48,8 @@ $script:DpiScale = [Math]::Round($script:DpiScale * 4) / 4        # 归到 0.25 
 
 function Update-DpiMetrics {
     $script:margin       = [int][Math]::Round(12  * $script:DpiScale)
-    $script:initW        = [int][Math]::Round(420 * $script:DpiScale)
-    $script:initH        = [int][Math]::Round(500 * $script:DpiScale)
+    $script:initW        = [int][Math]::Round(360 * $script:DpiScale)
+    $script:initH        = [int][Math]::Round(264 * $script:DpiScale)
     $script:cornerRadius = [Math]::Max(1, [int][Math]::Round(24 * $script:DpiScale))
 }
 Update-DpiMetrics
@@ -157,8 +157,9 @@ $script:sizeTimer.add_Tick({
 })
 
 # ---------- Deactivate 延迟隐藏 ----------
+# 300ms：150ms 太快，在面板里选中地址想复制到别处，鼠标一动窗口就没了
 $script:hideTimer = New-Object System.Windows.Forms.Timer
-$script:hideTimer.Interval = 150
+$script:hideTimer.Interval = 300
 $script:hideTimer.add_Tick({
     $script:hideTimer.Stop()
     if (-not $script:ready)   { return }
