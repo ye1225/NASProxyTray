@@ -1,11 +1,11 @@
 ﻿# NASProxyTray · 交接文档
 
 > 交接给下一个接手的人（或 AI）。
-> **当前状态：已定稿（归档，仅接受 bug 修复）** —— 最后版本 **v1.2.8**，定稿于 2026-09-24。
-> 功能上已落地、不再新增特性；下面的「后续可做」是**留着别丢**的，不排期。
-> 本版内容：公开仓库脱敏（示例地址统一为 `192.168.1.100:7890`，去掉本机路径/账号名）
-> + 文档完善（`README.md` 的托盘操作说明改到 v1.2.7 的新逻辑、下载链接更新到 v1.2.8）。
-> 功能上等价于 v1.2.7（圆角走 DWM 合成、托盘双击切代理 + 图标三色）。
+> **当前状态：v1.3.6 已发布**（2026-11-26）—— 功能已收敛到「开代理 + 国内直连/全局切换」两件事，
+> 界面只剩一屏 360px。**接受 bug 修复与小改动，不再加新功能**（用户原话：「不能再加太多功能了」）。
+> 本轮主题是**做减法**：砍掉 PAC 导入 / 例外地址 / 设置页等全部低频 UI（代码保留在 git），
+> 修掉「窗口不能跟着内容长高」的 size 上报死代码，并新增三层可维护的直连清单。
+> 版本沿革见下方表格（v1.3.0 ~ v1.3.6 六版连续迭代）。
 
 ---
 
@@ -20,7 +20,7 @@ Windows 托盘工具，一键切换系统代理指向 NAS，支持全局代理�
 | 正本位置 | **`\\<NAS地址>\Download\WorkBuddy\项目\001-NASProxyTray`**（NAS，唯一正本；本仓库公开，故用占位符） |
 | 历史位置 | **`D:\WorkBuddy\NASProxyTray`**（2026-09-24 起：所有项目统一平级放在 `D:\WorkBuddy\` 下）<br>笔记本 `D:\Desktop\NASProxyTray`、台式机 `C:\Users\<用户名>\Desktop\NASProxyTray` |
 | 本地缓存 | `D:\WorkBuddyCache\001-NASProxyTray\`（干活在这；用户开口才回传） |
-| 当前版本 | **v1.2.8**（唯一版本源：仓库根目录 `VERSION` 文件） |
+| 当前版本 | **v1.3.6**（唯一版本源：仓库根目录 `VERSION` 文件） |
 | 主分支 | `main` |
 | 运行环境 | Windows 10 1809+ / Windows 11 + WebView2 Runtime |
 | 发布形态 | **单个 `NASProxyTray.exe`**（v1.2.0 起，不必再带 `lib\` 和 `ui\`） |
@@ -689,9 +689,9 @@ export http_proxy= https_proxy= HTTP_PROXY= HTTPS_PROXY=
 git -c http.proxy=http://<NAS:端口> -c https.proxy=http://<NAS:端口> push origin main
 
 export HTTPS_PROXY=http://<NAS:端口> https_proxy=http://<NAS:端口>
-gh release create v1.2.8 dist/NASProxyTray.exe dist/NASProxyTray-v1.2.8.zip \
-  --repo ye1225/NASProxyTray --title "v1.2.8" \
-  --notes-file dist/RELEASE_NOTES-v1.2.8.md --latest
+gh release create v1.3.6 dist/NASProxyTray.exe dist/NASProxyTray-v1.3.6.zip \
+  --repo ye1225/NASProxyTray --title "v1.3.6" \
+  --notes-file dist/RELEASE_NOTES-v1.3.6.md --latest
 ```
 
 > ⚠️ **构建前先确认没有实例占着 `dist\NASProxyTray.exe`**：正在运行的 exe 会被
@@ -699,7 +699,8 @@ gh release create v1.2.8 dist/NASProxyTray.exe dist/NASProxyTray-v1.2.8.zip \
 > 两个办法：让用户退出托盘程序，或者 `mv dist\NASProxyTray.exe dist\NASProxyTray.exe.inuse`
 > 把文件改名腾位（**正在运行的进程不受影响**，改完即能构建；新 exe 生成后再删那个 `.inuse`）。
 
-已发布：v1.0.0 / v1.2.0 / v1.2.1 / v1.2.2 / v1.2.3 / v1.2.4 / v1.2.5 / v1.2.6 / v1.2.7 / **v1.2.8**。
+已发布：v1.0.0 / v1.2.0 / v1.2.1 / v1.2.2 / v1.2.3 / v1.2.4 / v1.2.5 / v1.2.6 / v1.2.7 / v1.2.8 /
+**v1.3.6**（v1.3.0~v1.3.5 为连续迭代，只在 v1.3.6 发一次 Release）。
 
 踩过的坑：
 
